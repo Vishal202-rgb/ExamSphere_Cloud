@@ -1,10 +1,11 @@
 // ==============================================================================
-// ExamSphere – Prisma Database Schema
-// Database Engine: PostgreSQL 16
+// ExamSphere – Relational Database Schema (PostgreSQL 16 via Prisma ORM)
+// Enterprise-Grade Online Examination & Assessment Platform
 // ==============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -22,177 +23,453 @@ enum UserRole {
   STUDENT
 }
 
-enum ExamStatus {
-  DRAFT
-  PUBLISHED
-  ONGOING
-  COMPLETED
-  ARCHIVED
+enum QuestionType {
+  SINGLE_MCQ
+  MULTIPLE_MCQ
+  TRUE_FALSE
+  DESCRIPTIVE
 }
 
-enum QuestionType {
-  MULTIPLE_CHOICE
-  MULTIPLE_SELECT
-  TRUE_FALSE
-  SHORT_ANSWER
-  CODING
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
 }
 
 enum AttemptStatus {
   IN_PROGRESS
   SUBMITTED
-  EVALUATED
   AUTO_SUBMITTED
+  EVALUATED
+  CANCELLED
+}
+
+enum ResultPublicationStatus {
+  DRAFT
+  PUBLISHED
+  WITHHELD
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  DROPPED
+  COMPLETED
+}
+
+enum NotificationType {
+  INFO
+  EXAM_SCHEDULED
+  EXAM_REMINDER
+  RESULT_PUBLISHED
+  ALERT
 }
 
 // ------------------------------------------------------------------------------
-// User & Authentication Model
+// 1. Department Model
+// ------------------------------------------------------------------------------
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique
+  description String?  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  users       User[]
+  courses     Course[]
+
+  @@index([name])
+  @@index([code])
+  @@map("departments")
+}
+
+// ------------------------------------------------------------------------------
+// 2. User Model (RBAC: Admin, Faculty, Student)
 // ------------------------------------------------------------------------------
 
 model User {
-  id           String        @id @default(uuid())
+  id           String     @id @default(uuid())
   name         String
-  email        String        @unique
-  password     String
-  role         UserRole      @default(STUDENT)
+  email        String     @unique
+  password     String     // Bcrypt hashed password
+  role         UserRole   @default(STUDENT)
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  rollNumber   String?    @unique // Nullable for Faculty and Admin
+  batch        String?    // e.g. "2023-2027"
+  section      String?    // e.g. "A"
   avatarUrl    String?
-  isActive     Boolean       @default(true)
-  refreshToken String?       @db.Text
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  isActive     Boolean    @default(true)
+  refreshToken String?    @db.Text
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  // Relations
-  createdExams Exam[]        @relation("FacultyCreatedExams")
-  attempts     ExamAttempt[] @relation("StudentExamAttempts")
-  auditLogs    AuditLog[]
+  // Relationships
+  facultyCourses     CourseFaculty[]
+  studentEnrollments StudentEnrollment[]
+  createdQuestions   Question[]          @relation("QuestionCreatedBy")
+  createdExams       Exam[]              @relation("ExamCreatedBy")
+  assignedExams      ExamAssignment[]    @relation("StudentAssignedExams")
+  attempts           Attempt[]           @relation("StudentAttempts")
+  results            Result[]            @relation("StudentResults")
+  notifications      Notification[]
+  auditLogs          AuditLog[]
 
   @@index([email])
   @@index([role])
+  @@index([departmentId])
+  @@index([rollNumber])
+  @@index([batch, section])
   @@map("users")
 }
 
 // ------------------------------------------------------------------------------
-// Exam Assessment Model
+// 3. Course Model
 // ------------------------------------------------------------------------------
 
-model Exam {
-  id              String        @id @default(uuid())
-  title           String
-  description     String?       @db.Text
-  courseCode      String
-  durationMinutes Int           @default(60)
-  totalMarks      Float         @default(100)
-  passingMarks    Float         @default(40)
-  status          ExamStatus    @default(DRAFT)
-  startTime       DateTime
-  endTime         DateTime
-  createdById     String
-  createdBy       User          @relation("FacultyCreatedExams", fields: [createdById], references: [id], onDelete: Cascade)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+model Course {
+  id           String     @id @default(uuid())
+  code         String     @unique // e.g. "CS301"
+  title        String
+  description  String?    @db.Text
+  credits      Int        @default(3)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  // Relations
-  questions       Question[]
-  attempts        ExamAttempt[]
+  // Relationships
+  facultyMembers CourseFaculty[]
+  enrolledStudents StudentEnrollment[]
+  questions      Question[]
+  exams          Exam[]
 
-  @@index([courseCode])
-  @@index([status])
-  @@index([createdById])
-  @@map("exams")
+  @@index([code])
+  @@index([departmentId])
+  @@map("courses")
 }
 
 // ------------------------------------------------------------------------------
-// Question Bank Model
+// 4. CourseFaculty Model (Many-to-Many Join: Course <-> Faculty User)
+// ------------------------------------------------------------------------------
+
+model CourseFaculty {
+  id            String   @id @default(uuid())
+  courseId      String
+  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  facultyId     String
+  faculty       User     @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  isCoordinator Boolean  @default(false)
+  assignedAt    DateTime @default(now())
+
+  @@unique([courseId, facultyId])
+  @@index([courseId])
+  @@index([facultyId])
+  @@map("course_faculty")
+}
+
+// ------------------------------------------------------------------------------
+// 5. StudentEnrollment Model (Many-to-Many Join: Course <-> Student User)
+// ------------------------------------------------------------------------------
+
+model StudentEnrollment {
+  id         String           @id @default(uuid())
+  courseId   String
+  course     Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status     EnrollmentStatus @default(ACTIVE)
+  enrolledAt DateTime         @default(now())
+
+  @@unique([courseId, studentId])
+  @@index([courseId])
+  @@index([studentId])
+  @@index([status])
+  @@map("student_enrollments")
+}
+
+// ------------------------------------------------------------------------------
+// 6. Question Model (Question Bank)
 // ------------------------------------------------------------------------------
 
 model Question {
   id            String             @id @default(uuid())
-  examId        String
-  exam          Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
-  type          QuestionType       @default(MULTIPLE_CHOICE)
-  prompt        String             @db.Text
+  questionText  String             @db.Text
+  type          QuestionType       @default(SINGLE_MCQ)
+  difficulty    QuestionDifficulty @default(MEDIUM)
   marks         Float              @default(1.0)
-  options       Json?              // Array of options for MCQ/Multi-select
-  correctAnswer Json               // Correct option(s) or expected answer value
-  explanation   String?            @db.Text
-  orderIndex    Int                @default(0)
+  negativeMarks Float              @default(0.0)
+  courseId      String
+  course        Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdById   String
+  createdBy     User               @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  topicTags     String[]           @default([])
+  explanation   String?            @db.Text // Faculty notes/explanation
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
-  // Relations
-  answers       AnswerSubmission[]
+  // Relationships
+  options       QuestionOption[]
+  examQuestions ExamQuestion[]
+  answers       Answer[]
 
-  @@index([examId])
-  @@index([orderIndex])
+  @@index([courseId])
+  @@index([createdById])
+  @@index([type])
+  @@index([difficulty])
   @@map("questions")
 }
 
 // ------------------------------------------------------------------------------
-// Exam Attempt & Student Session Model
+// 7. QuestionOption Model
+// NOTE: `isCorrect` must NEVER be selected/exposed in student-facing query APIs
 // ------------------------------------------------------------------------------
 
-model ExamAttempt {
-  id             String             @id @default(uuid())
-  examId         String
-  exam           Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
-  studentId      String
-  student        User               @relation("StudentExamAttempts", fields: [studentId], references: [id], onDelete: Cascade)
-  startedAt      DateTime           @default(now())
-  submittedAt    DateTime?
-  score          Float?             @default(0)
-  status         AttemptStatus      @default(IN_PROGRESS)
-  tabSwitchCount Int                @default(0)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+model QuestionOption {
+  id         String   @id @default(uuid())
+  optionText String   @db.Text
+  isCorrect  Boolean  @default(false)
+  orderIndex Int      @default(0)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  // Relations
-  answers        AnswerSubmission[]
+  @@index([questionId])
+  @@index([questionId, orderIndex])
+  @@map("question_options")
+}
+
+// ------------------------------------------------------------------------------
+// 8. Exam Model
+// ------------------------------------------------------------------------------
+
+model Exam {
+  id               String          @id @default(uuid())
+  title            String
+  description      String?         @db.Text
+  courseId         String
+  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdById      String
+  createdBy        User            @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  durationMinutes  Int             @default(60)
+  totalMarks       Float           @default(100.0)
+  passingMarks     Float           @default(40.0)
+  startTime        DateTime
+  endTime          DateTime
+  status           ExamStatus      @default(DRAFT)
+  shuffleQuestions Boolean         @default(false)
+  shuffleOptions   Boolean         @default(false)
+  negativeMarking  Boolean         @default(false)
+  maxAttempts      Int             @default(1)
+  autoSubmit       Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  // Relationships
+  examQuestions    ExamQuestion[]
+  assignments      ExamAssignment[]
+  attempts         Attempt[]
+  results          Result[]
+
+  @@index([courseId])
+  @@index([createdById])
+  @@index([status])
+  @@index([startTime])
+  @@index([endTime])
+  @@index([courseId, status])
+  @@map("exams")
+}
+
+// ------------------------------------------------------------------------------
+// 9. ExamQuestion Model (Exam <-> Question Join Table with Order & Overrides)
+// ------------------------------------------------------------------------------
+
+model ExamQuestion {
+  id            String    @id @default(uuid())
+  examId        String
+  exam          Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questionId    String
+  question      Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  orderIndex    Int       @default(0)
+  marks         Float?    // Optional exam-specific mark override
+  negativeMarks Float?    // Optional exam-specific negative mark override
+  createdAt     DateTime  @default(now())
+
+  @@unique([examId, questionId])
+  @@index([examId])
+  @@index([questionId])
+  @@index([examId, orderIndex])
+  @@map("exam_questions")
+}
+
+// ------------------------------------------------------------------------------
+// 10. ExamAssignment Model (Targeted Exam Roster / Student Eligibility)
+// ------------------------------------------------------------------------------
+
+model ExamAssignment {
+  id               String   @id @default(uuid())
+  examId           String
+  exam             Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId        String
+  student          User     @relation("StudentAssignedExams", fields: [studentId], references: [id], onDelete: Cascade)
+  extraTimeMinutes Int      @default(0) // Special accommodation extra time
+  isDisqualified   Boolean  @default(false)
+  disqualifyReason String?  @db.Text
+  assignedAt       DateTime @default(now())
 
   @@unique([examId, studentId])
   @@index([examId])
   @@index([studentId])
-  @@index([status])
-  @@map("exam_attempts")
+  @@index([examId, isDisqualified])
+  @@map("exam_assignments")
 }
 
 // ------------------------------------------------------------------------------
-// Answer Submission & Evaluation Model
+// 11. Attempt Model (Student Exam Session)
 // ------------------------------------------------------------------------------
 
-model AnswerSubmission {
-  id              String      @id @default(uuid())
-  attemptId       String
-  attempt         ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  questionId      String
-  question        Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  submittedAnswer Json
-  isCorrect       Boolean?
-  marksAwarded    Float?      @default(0)
-  feedback        String?     @db.Text
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+model Attempt {
+  id             String        @id @default(uuid())
+  examId         String
+  exam           Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        User          @relation("StudentAttempts", fields: [studentId], references: [id], onDelete: Cascade)
+  attemptNumber  Int           @default(1)
+  startedAt      DateTime      @default(now())
+  expiresAt      DateTime
+  submittedAt    DateTime?
+  status         AttemptStatus @default(IN_PROGRESS)
+  obtainedMarks  Float         @default(0.0)
+  tabSwitchCount Int           @default(0)
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relationships
+  answers        Answer[]
+  result         Result?
+
+  @@unique([examId, studentId, attemptNumber])
+  @@index([examId])
+  @@index([studentId])
+  @@index([status])
+  @@index([examId, studentId])
+  @@index([examId, status])
+  @@map("attempts")
+}
+
+// ------------------------------------------------------------------------------
+// 12. Answer Model (Student Response per Question)
+// Enforces Unique constraint on [attemptId, questionId]
+// ------------------------------------------------------------------------------
+
+model Answer {
+  id                String    @id @default(uuid())
+  attemptId         String
+  attempt           Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId        String
+  question          Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptions   Json?     // Array of selected Option UUIDs for MCQ / TrueFalse
+  descriptiveAnswer String?   @db.Text // Text answer for DESCRIPTIVE questions
+  isCorrect         Boolean?  // Computed during auto/manual evaluation
+  marksAwarded      Float     @default(0.0)
+  markedForReview   Boolean   @default(false)
+  savedTimestamp    DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@unique([attemptId, questionId])
   @@index([attemptId])
   @@index([questionId])
-  @@map("answer_submissions")
+  @@map("answers")
 }
 
 // ------------------------------------------------------------------------------
-// Security & System Audit Logs
+// 13. Result Model (Evaluated Exam Scores & Rankings)
+// ------------------------------------------------------------------------------
+
+model Result {
+  id                   String                  @id @default(uuid())
+  studentId            String
+  student              User                    @relation("StudentResults", fields: [studentId], references: [id], onDelete: Cascade)
+  examId               String
+  exam                 Exam                    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  attemptId            String                  @unique
+  attempt              Attempt                 @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  obtainedMarks        Float
+  totalMarks           Float
+  percentage           Float
+  correctAnswersCount  Int                     @default(0)
+  incorrectAnswersCount Int                    @default(0)
+  unansweredCount      Int                     @default(0)
+  rank                 Int?
+  publicationStatus    ResultPublicationStatus @default(DRAFT)
+  publishedAt          DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  @@index([studentId])
+  @@index([examId])
+  @@index([attemptId])
+  @@index([examId, studentId])
+  @@index([examId, rank])
+  @@index([examId, publicationStatus])
+  @@map("results")
+}
+
+// ------------------------------------------------------------------------------
+// 14. Notification Model
+// ------------------------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String           @db.Text
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ------------------------------------------------------------------------------
+// 15. AuditLog Model (Security & Compliance Tracking)
 // ------------------------------------------------------------------------------
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action    String
-  ipAddress String?
-  metadata  Json?
-  timestamp DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  resource   String?
+  resourceId String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  timestamp  DateTime @default(now())
 
   @@index([userId])
   @@index([action])
   @@index([timestamp])
+  @@index([userId, timestamp])
   @@map("audit_logs")
 }
