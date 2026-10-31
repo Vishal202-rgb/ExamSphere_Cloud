@@ -1,0 +1,198 @@
+// ==============================================================================
+// ExamSphere – Prisma Database Schema
+// Database Engine: PostgreSQL 16
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  FACULTY
+  STUDENT
+}
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  ONGOING
+  COMPLETED
+  ARCHIVED
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  MULTIPLE_SELECT
+  TRUE_FALSE
+  SHORT_ANSWER
+  CODING
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EVALUATED
+  AUTO_SUBMITTED
+}
+
+// ------------------------------------------------------------------------------
+// User & Authentication Model
+// ------------------------------------------------------------------------------
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  password     String
+  role         UserRole      @default(STUDENT)
+  avatarUrl    String?
+  isActive     Boolean       @default(true)
+  refreshToken String?       @db.Text
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  createdExams Exam[]        @relation("FacultyCreatedExams")
+  attempts     ExamAttempt[] @relation("StudentExamAttempts")
+  auditLogs    AuditLog[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ------------------------------------------------------------------------------
+// Exam Assessment Model
+// ------------------------------------------------------------------------------
+
+model Exam {
+  id              String        @id @default(uuid())
+  title           String
+  description     String?       @db.Text
+  courseCode      String
+  durationMinutes Int           @default(60)
+  totalMarks      Float         @default(100)
+  passingMarks    Float         @default(40)
+  status          ExamStatus    @default(DRAFT)
+  startTime       DateTime
+  endTime         DateTime
+  createdById     String
+  createdBy       User          @relation("FacultyCreatedExams", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  questions       Question[]
+  attempts        ExamAttempt[]
+
+  @@index([courseCode])
+  @@index([status])
+  @@index([createdById])
+  @@map("exams")
+}
+
+// ------------------------------------------------------------------------------
+// Question Bank Model
+// ------------------------------------------------------------------------------
+
+model Question {
+  id            String             @id @default(uuid())
+  examId        String
+  exam          Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  type          QuestionType       @default(MULTIPLE_CHOICE)
+  prompt        String             @db.Text
+  marks         Float              @default(1.0)
+  options       Json?              // Array of options for MCQ/Multi-select
+  correctAnswer Json               // Correct option(s) or expected answer value
+  explanation   String?            @db.Text
+  orderIndex    Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  // Relations
+  answers       AnswerSubmission[]
+
+  @@index([examId])
+  @@index([orderIndex])
+  @@map("questions")
+}
+
+// ------------------------------------------------------------------------------
+// Exam Attempt & Student Session Model
+// ------------------------------------------------------------------------------
+
+model ExamAttempt {
+  id             String             @id @default(uuid())
+  examId         String
+  exam           Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        User               @relation("StudentExamAttempts", fields: [studentId], references: [id], onDelete: Cascade)
+  startedAt      DateTime           @default(now())
+  submittedAt    DateTime?
+  score          Float?             @default(0)
+  status         AttemptStatus      @default(IN_PROGRESS)
+  tabSwitchCount Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  // Relations
+  answers        AnswerSubmission[]
+
+  @@unique([examId, studentId])
+  @@index([examId])
+  @@index([studentId])
+  @@index([status])
+  @@map("exam_attempts")
+}
+
+// ------------------------------------------------------------------------------
+// Answer Submission & Evaluation Model
+// ------------------------------------------------------------------------------
+
+model AnswerSubmission {
+  id              String      @id @default(uuid())
+  attemptId       String
+  attempt         ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  submittedAnswer Json
+  isCorrect       Boolean?
+  marksAwarded    Float?      @default(0)
+  feedback        String?     @db.Text
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+  @@map("answer_submissions")
+}
+
+// ------------------------------------------------------------------------------
+// Security & System Audit Logs
+// ------------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  ipAddress String?
+  metadata  Json?
+  timestamp DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("audit_logs")
+}

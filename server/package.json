@@ -1,0 +1,47 @@
+{
+  "name": "examsphere-server",
+  "version": "1.0.0",
+  "description": "Backend API for ExamSphere Cloud-Based Examination & Assessment Platform",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "test:db": "node src/scripts/testConnection.js"
+  },
+  "keywords": [
+    "examination",
+    "assessment",
+    "examsphere",
+    "express",
+    "prisma",
+    "postgresql",
+    "redis",
+    "bullmq",
+    "socketio"
+  ],
+  "author": "ExamSphere Team",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "bcryptjs": "^3.0.2",
+    "bullmq": "^5.41.6",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.8.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9",
+    "prisma": "^6.4.1"
+  }
+}

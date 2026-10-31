@@ -1,0 +1,34 @@
+{
+  "name": "examsphere",
+  "version": "1.0.0",
+  "description": "ExamSphere – Cloud-Based Online Examination & Assessment Platform",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "build:client": "npm --prefix client run build",
+    "prisma:generate": "npm --prefix server run prisma:generate",
+    "prisma:migrate": "npm --prefix server run prisma:migrate",
+    "prisma:studio": "npm --prefix server run prisma:studio",
+    "test:db": "npm --prefix server run test:db",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "keywords": [
+    "examsphere",
+    "online-examination",
+    "assessment-platform",
+    "react",
+    "express",
+    "prisma",
+    "postgresql",
+    "redis"
+  ],
+  "author": "ExamSphere Team",
+  "license": "ISC"
+}
