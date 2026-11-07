@@ -1,6 +1,6 @@
 // ==============================================================================
 // ExamSphere – Centralized Error Handling Middleware
-// Formats all errors into a consistent JSON envelope
+// Formats all errors into a consistent, secure JSON envelope with request tracing
 // ==============================================================================
 
 import { ApiError } from '../utils/apiError.js';
@@ -23,11 +23,17 @@ export const errorHandler = (err, req, res, next) => {
   if (err.code && typeof err.code === 'string' && err.code.startsWith('P')) {
     if (err.code === 'P2002') {
       const target = err.meta?.target || 'field';
-      error = new ApiError(409, `Unique constraint violation on ${target}`);
+      const msg = env.NODE_ENV === 'production'
+        ? 'A unique constraint was violated. A record with this information already exists.'
+        : `Unique constraint violation on ${target}`;
+      error = new ApiError(409, msg);
     } else if (err.code === 'P2025') {
-      error = new ApiError(404, 'Record not found');
+      error = new ApiError(404, 'Requested record was not found');
     } else {
-      error = new ApiError(400, `Database error: [${err.code}]`);
+      const msg = env.NODE_ENV === 'production'
+        ? 'A database error occurred while processing the request'
+        : `Database error: [${err.code}]`;
+      error = new ApiError(400, msg);
     }
   }
 
@@ -38,10 +44,12 @@ export const errorHandler = (err, req, res, next) => {
     error = new ApiError(401, 'Authentication token has expired');
   }
 
-  // Fallback for non-operational / standard errors
+  // Fallback for non-operational / standard unexpected errors
   if (!(error instanceof ApiError)) {
     const statusCode = error.statusCode || 500;
-    const message = error.message || 'Internal Server Error';
+    const message = env.NODE_ENV === 'production' && statusCode >= 500
+      ? 'An unexpected internal error occurred'
+      : (error.message || 'Internal Server Error');
     error = new ApiError(statusCode, message, [], err.stack);
   }
 
@@ -50,13 +58,19 @@ export const errorHandler = (err, req, res, next) => {
     statusCode: error.statusCode,
     message: error.message,
     errors: error.errors || [],
+    requestId: req.id || req.headers?.['x-request-id'] || null,
     ...(env.NODE_ENV === 'development' && { stack: error.stack }),
     timestamp: new Date().toISOString(),
   };
 
-  // Log error in development or 500 in production
+  // Structured logging for errors
   if (env.NODE_ENV === 'development' || error.statusCode >= 500) {
-    console.error(`❌ [${req.method} ${req.originalUrl}] - Status: ${error.statusCode} - ${error.message}`);
+    console.error(
+      `❌ [${req.method} ${req.originalUrl}] [ReqID: ${response.requestId}] Status: ${error.statusCode} - ${error.message}`
+    );
+    if (error.statusCode >= 500 && err.stack) {
+      console.error(err.stack);
+    }
   }
 
   res.status(error.statusCode).json(response);

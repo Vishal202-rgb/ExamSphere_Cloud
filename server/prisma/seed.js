@@ -314,6 +314,7 @@ async function main() {
       startTime: startTime,
       endTime: endTime,
       status: ExamStatus.SCHEDULED,
+      isPublished: true,
       shuffleQuestions: true,
       shuffleOptions: true,
       negativeMarking: true,

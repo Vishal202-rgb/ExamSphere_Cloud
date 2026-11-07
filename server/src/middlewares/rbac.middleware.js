@@ -15,10 +15,17 @@ export const authorizeRoles = (...allowedRoles) => {
       return next(ApiError.unauthorized('Authentication required'));
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const userRole = req.user.role;
+    // Treat SUPER_ADMIN and ADMIN interchangeably for administrative access
+    const isAllowed =
+      allowedRoles.includes(userRole) ||
+      ((allowedRoles.includes('ADMIN') || allowedRoles.includes('SUPER_ADMIN')) &&
+        (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'));
+
+    if (!isAllowed) {
       return next(
         ApiError.forbidden(
-          `Forbidden: Role '${req.user.role}' is not authorized to access this resource`
+          `Forbidden: Role '${userRole}' is not authorized to access this resource`
         )
       );
     }

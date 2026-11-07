@@ -15,6 +15,7 @@
     "prisma:migrate": "npm --prefix server run prisma:migrate",
     "prisma:studio": "npm --prefix server run prisma:studio",
     "seed": "npm --prefix server run seed",
+    "test": "npm --prefix server test",
     "test:db": "npm --prefix server run test:db",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

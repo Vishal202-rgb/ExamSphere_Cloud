@@ -28,6 +28,7 @@ enum QuestionType {
   MULTIPLE_MCQ
   TRUE_FALSE
   DESCRIPTIVE
+  CODING
 }
 
 enum QuestionDifficulty {
@@ -50,6 +51,22 @@ enum AttemptStatus {
   AUTO_SUBMITTED
   EVALUATED
   CANCELLED
+  DISQUALIFIED
+}
+
+enum SubmissionReason {
+  MANUAL
+  AUTO_TIMEOUT
+  ADMIN_TERMINATED
+  DISQUALIFIED
+}
+
+enum EvaluationStatus {
+  PENDING
+  AUTO_EVALUATED
+  MANUAL_EVALUATION_PENDING
+  EVALUATED
+  FAILED
 }
 
 enum ResultPublicationStatus {
@@ -68,8 +85,37 @@ enum NotificationType {
   INFO
   EXAM_SCHEDULED
   EXAM_REMINDER
+  EXAM_ASSIGNED
+  EXAM_STARTING_SOON
+  EXAM_CANCELLED
+  EXAM_SUBMITTED
   RESULT_PUBLISHED
+  EVALUATION_REQUIRED
+  ANNOUNCEMENT
   ALERT
+}
+
+enum CodingSubmissionStatus {
+  PENDING
+  RUNNING
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+  COMPILATION_ERROR
+  RUNTIME_ERROR
+  INTERNAL_ERROR
+  SETUP_REQUIRED
+}
+
+enum ProctoringEventType {
+  TAB_BLUR
+  TAB_FOCUS
+  FULLSCREEN_EXIT
+  FULLSCREEN_ENTER
+  DISCONNECT
+  RECONNECT
+  SUSPICIOUS_KEY
 }
 
 // ------------------------------------------------------------------------------
@@ -111,9 +157,11 @@ model User {
   section      String?    // e.g. "A"
   avatarUrl    String?
   isActive     Boolean    @default(true)
-  refreshToken String?    @db.Text
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  refreshToken        String?    @db.Text
+  resetPasswordToken  String?    @db.Text
+  resetPasswordExpiry DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   // Relationships
   facultyCourses     CourseFaculty[]
@@ -125,6 +173,10 @@ model User {
   results            Result[]            @relation("StudentResults")
   notifications      Notification[]
   auditLogs          AuditLog[]
+  sentAnnouncements  ExamAnnouncement[]  @relation("SenderAnnouncements")
+  evaluatedAnswers   Answer[]            @relation("EvaluatedAnswers")
+  codingSubmissions  CodingSubmission[]  @relation("StudentCodingSubmissions")
+  proctoringEvents   ProctoringEvent[]   @relation("StudentProctoringEvents")
 
   @@index([email])
   @@index([role])
@@ -155,6 +207,7 @@ model Course {
   enrolledStudents StudentEnrollment[]
   questions      Question[]
   exams          Exam[]
+  examCourses    ExamCourse[]
 
   @@index([code])
   @@index([departmentId])
@@ -217,18 +270,22 @@ model Question {
   createdBy     User               @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   topicTags     String[]           @default([])
   explanation   String?            @db.Text // Faculty notes/explanation
+  isActive      Boolean            @default(true) // Supports archive and soft deletion
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
   // Relationships
-  options       QuestionOption[]
-  examQuestions ExamQuestion[]
-  answers       Answer[]
+  options           QuestionOption[]
+  examQuestions     ExamQuestion[]
+  answers           Answer[]
+  codingDetail      CodingQuestionDetail?
+  codingSubmissions CodingSubmission[]
 
   @@index([courseId])
   @@index([createdById])
   @@index([type])
   @@index([difficulty])
+  @@index([isActive])
   @@map("questions")
 }
 
@@ -270,19 +327,25 @@ model Exam {
   startTime        DateTime
   endTime          DateTime
   status           ExamStatus      @default(DRAFT)
+  isPublished      Boolean         @default(false)
   shuffleQuestions Boolean         @default(false)
   shuffleOptions   Boolean         @default(false)
   negativeMarking  Boolean         @default(false)
   maxAttempts      Int             @default(1)
   autoSubmit       Boolean         @default(true)
+  allowLateEntry   Boolean         @default(false)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
+
   // Relationships
-  examQuestions    ExamQuestion[]
-  assignments      ExamAssignment[]
-  attempts         Attempt[]
-  results          Result[]
+  courses           ExamCourse[]
+  examQuestions     ExamQuestion[]
+  assignments       ExamAssignment[]
+  attempts          Attempt[]
+  results           Result[]
+  announcements     ExamAnnouncement[]
+  codingSubmissions CodingSubmission[]
 
   @@index([courseId])
   @@index([createdById])
@@ -291,6 +354,25 @@ model Exam {
   @@index([endTime])
   @@index([courseId, status])
   @@map("exams")
+}
+
+// ------------------------------------------------------------------------------
+// 8a. ExamCourse Model (Many-to-Many Join: Exam <-> Course)
+// Supports exams associated with multiple authorized academic courses
+// ------------------------------------------------------------------------------
+
+model ExamCourse {
+  id        String   @id @default(uuid())
+  examId    String
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([examId, courseId])
+  @@index([examId])
+  @@index([courseId])
+  @@map("exam_courses")
 }
 
 // ------------------------------------------------------------------------------
@@ -353,15 +435,27 @@ model Attempt {
   submittedAt    DateTime?
   status         AttemptStatus @default(IN_PROGRESS)
   obtainedMarks  Float         @default(0.0)
-  tabSwitchCount Int           @default(0)
-  ipAddress      String?
-  userAgent      String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  tabSwitchCount   Int               @default(0)
+  violationCount   Int               @default(0)
+  isDisqualified   Boolean           @default(false)
+  disqualifiedAt   DateTime?
+  disqualifyReason String?           @db.Text
+  ipAddress        String?
+  userAgent        String?
+  submissionReason SubmissionReason?
+  evaluationStatus EvaluationStatus  @default(PENDING)
+  evaluationError  String?           @db.Text
+  evaluatedAt      DateTime?
+  questionOrder    Json?             // Array of question UUIDs in attempt order
+  optionOrder      Json?             // Map of question UUID -> array of option UUIDs in attempt order
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   // Relationships
-  answers        Answer[]
-  result         Result?
+  answers           Answer[]
+  result            Result?
+  codingSubmissions CodingSubmission[]
+  proctoringEvents  ProctoringEvent[]
 
   @@unique([examId, studentId, attemptNumber])
   @@index([examId])
@@ -369,6 +463,7 @@ model Attempt {
   @@index([status])
   @@index([examId, studentId])
   @@index([examId, status])
+  @@index([status, expiresAt])
   @@map("attempts")
 }
 
@@ -387,7 +482,12 @@ model Answer {
   descriptiveAnswer String?   @db.Text // Text answer for DESCRIPTIVE questions
   isCorrect         Boolean?  // Computed during auto/manual evaluation
   marksAwarded      Float     @default(0.0)
+  facultyFeedback   String?   @db.Text
+  evaluatedAt       DateTime?
+  evaluatedById     String?
+  evaluatedBy       User?     @relation("EvaluatedAnswers", fields: [evaluatedById], references: [id], onDelete: SetNull)
   markedForReview   Boolean   @default(false)
+  version           Int       @default(1) // Optimistic concurrency version check
   savedTimestamp    DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -416,6 +516,10 @@ model Result {
   incorrectAnswersCount Int                    @default(0)
   unansweredCount      Int                     @default(0)
   rank                 Int?
+  isPassed             Boolean?
+  evaluationStatus     EvaluationStatus        @default(PENDING)
+  evaluationNotes      String?                 @db.Text
+  evaluatedAt          DateTime?
   publicationStatus    ResultPublicationStatus @default(DRAFT)
   publishedAt          DateTime?
   createdAt            DateTime                @default(now())
@@ -427,6 +531,7 @@ model Result {
   @@index([examId, studentId])
   @@index([examId, rank])
   @@index([examId, publicationStatus])
+  @@index([studentId, publicationStatus])
   @@map("results")
 }
 
@@ -452,6 +557,26 @@ model Notification {
 }
 
 // ------------------------------------------------------------------------------
+// 14b. ExamAnnouncement Model
+// ------------------------------------------------------------------------------
+
+model ExamAnnouncement {
+  id        String   @id @default(uuid())
+  examId    String
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User     @relation("SenderAnnouncements", fields: [senderId], references: [id], onDelete: Cascade)
+  title     String
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([examId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("exam_announcements")
+}
+
+// ------------------------------------------------------------------------------
 // 15. AuditLog Model (Security & Compliance Tracking)
 // ------------------------------------------------------------------------------
 
@@ -473,3 +598,115 @@ model AuditLog {
   @@index([userId, timestamp])
   @@map("audit_logs")
 }
+
+// ------------------------------------------------------------------------------
+// 16. CodingQuestionDetail Model
+// Extended metadata for CODING question type
+// ------------------------------------------------------------------------------
+
+model CodingQuestionDetail {
+  id               String           @id @default(uuid())
+  questionId       String           @unique
+  question         Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  inputFormat      String?          @db.Text
+  outputFormat     String?          @db.Text
+  constraints      String?          @db.Text
+  allowedLanguages Json?            // e.g. ["javascript", "python", "java", "cpp"]
+  starterCode      Json?            // e.g. {"javascript": "// code here", "python": "# code here"}
+  timeLimitSec     Float            @default(2.0)
+  memoryLimitMb    Int              @default(256)
+  evaluationPolicy String           @default("ALL_TEST_CASES") // "ALL_TEST_CASES", "PERCENTAGE"
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  // Relationships
+  testCases        CodingTestCase[]
+
+  @@map("coding_question_details")
+}
+
+// ------------------------------------------------------------------------------
+// 17. CodingTestCase Model
+// Test cases for automated code validation (Sample vs Hidden)
+// NOTE: `isSample = false` test cases must NEVER be exposed to student query APIs
+// ------------------------------------------------------------------------------
+
+model CodingTestCase {
+  id             String               @id @default(uuid())
+  codingDetailId String
+  codingDetail   CodingQuestionDetail @relation(fields: [codingDetailId], references: [id], onDelete: Cascade)
+  input          String               @db.Text
+  expectedOutput String               @db.Text
+  isSample       Boolean              @default(false)
+  explanation    String?              @db.Text
+  weight         Float                @default(1.0)
+  orderIndex     Int                  @default(0)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([codingDetailId])
+  @@index([codingDetailId, isSample])
+  @@map("coding_test_cases")
+}
+
+// ------------------------------------------------------------------------------
+// 18. CodingSubmission Model
+// Records each code execution / submission run by a student
+// ------------------------------------------------------------------------------
+
+model CodingSubmission {
+  id              String                 @id @default(uuid())
+  studentId       String
+  student         User                   @relation("StudentCodingSubmissions", fields: [studentId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        Question               @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  attemptId       String?
+  attempt         Attempt?               @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  examId          String?
+  exam            Exam?                  @relation(fields: [examId], references: [id], onDelete: Cascade)
+  sourceCode      String                 @db.Text
+  language        String
+  status          CodingSubmissionStatus @default(PENDING)
+  totalTestCases  Int                    @default(0)
+  passedTestCases Int                    @default(0)
+  marksAwarded    Float                  @default(0.0)
+  executionTimeMs Float?
+  memoryUsedKb    Int?
+  compileOutput   String?                @db.Text
+  executionOutput Json?                  // Detailed array of results per test case
+  errorMessage    String?                @db.Text
+  isSampleRun     Boolean                @default(false)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([studentId])
+  @@index([questionId])
+  @@index([attemptId])
+  @@index([examId])
+  @@index([status])
+  @@map("coding_submissions")
+}
+
+// ------------------------------------------------------------------------------
+// 19. ProctoringEvent Model
+// Privacy-conscious browser telemetry & integrity logs during an active attempt
+// ------------------------------------------------------------------------------
+
+model ProctoringEvent {
+  id         String              @id @default(uuid())
+  attemptId  String
+  attempt    Attempt             @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    User                @relation("StudentProctoringEvents", fields: [studentId], references: [id], onDelete: Cascade)
+  eventType  ProctoringEventType
+  details    Json?
+  clientTime DateTime            @default(now())
+  serverTime DateTime            @default(now())
+
+  @@index([attemptId])
+  @@index([studentId])
+  @@index([eventType])
+  @@index([attemptId, clientTime])
+  @@map("proctoring_events")
+}
+

@@ -8,8 +8,12 @@ import app from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/db.js';
 import { redis } from './config/redis.js';
+import { startExpiredAttemptsWorker, stopExpiredAttemptsWorker } from './workers/expiredAttemptsWorker.js';
+import { closeEvaluationQueue } from './queues/evaluation.queue.js';
 
 const server = http.createServer(app);
+
+import { setupSocketIO } from './socket/index.js';
 
 // Initialize Socket.IO with CORS settings
 export const io = new SocketIOServer(server, {
@@ -19,13 +23,8 @@ export const io = new SocketIOServer(server, {
   },
 });
 
-io.on('connection', (socket) => {
-  console.log(`🔌 [Socket.IO] Client connected: ${socket.id}`);
-
-  socket.on('disconnect', (reason) => {
-    console.log(`🔌 [Socket.IO] Client disconnected: ${socket.id} (${reason})`);
-  });
-});
+// Setup modular Socket.IO authentication and event routing
+setupSocketIO(io);
 
 // Start HTTP Server
 const PORT = env.PORT || 5000;
@@ -40,11 +39,17 @@ server.listen(PORT, () => {
   🩺 Health Check: http://localhost:${PORT}/api/v1/health
   ==============================================================
   `);
+
+  // Start background monitoring worker for expiring in-progress attempts
+  startExpiredAttemptsWorker(15000);
 });
 
 // Graceful Shutdown Handler
 const gracefulShutdown = async (signal) => {
   console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+
+  stopExpiredAttemptsWorker();
+  await closeEvaluationQueue();
 
   server.close(async () => {
     console.log('🔒 HTTP server closed');

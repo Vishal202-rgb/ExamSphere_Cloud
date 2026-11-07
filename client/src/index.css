@@ -4,58 +4,73 @@
 
 @layer base {
   :root {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
+    --background: #050B1E;
+    --surface: #111827;
+    --surface-secondary: #0F172A;
+    --sidebar: #0F172A;
+    --foreground: #F8FAFC;
+    --secondary-text: #94A3B8;
+    --muted-text: #64748B;
+    --primary: #2563EB;
+    --primary-foreground: #FFFFFF;
+    --border: rgba(255, 255, 255, 0.08);
+    --input-border: #334155;
+    --hover: rgba(255, 255, 255, 0.06);
 
-    --muted: 223 47% 11%;
-    --muted-foreground: 215.4 16.3% 56.9%;
-
-    --popover: 224 71% 4%;
-    --popover-foreground: 215 20.2% 65.1%;
-
-    --card: 224 71% 4%;
-    --card-foreground: 213 31% 91%;
-
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-
-    --primary: 210 100% 50%;
-    --primary-foreground: 222.2 47.4% 1.2%;
-
-    --secondary: 222.2 47.4% 11.2%;
-    --secondary-foreground: 210 40% 98%;
-
-    --accent: 216 34% 17%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-
-    --ring: 216 34% 17%;
-
-    --radius: 0.5rem;
+    /* Semantic fallback mappings for Tailwind */
+    --card: #111827;
+    --card-foreground: #F8FAFC;
+    --popover: #0F172A;
+    --popover-foreground: #F8FAFC;
+    --muted: #0F172A;
+    --muted-foreground: #94A3B8;
+    --accent: #9333EA;
+    --accent-foreground: #FFFFFF;
+    --destructive: #EF4444;
+    --destructive-foreground: #FFFFFF;
+    --ring: #2563EB;
+    --radius: 0.75rem;
   }
-}
 
-@layer base {
   * {
-    @apply border-border;
+    border-color: var(--border);
   }
+
   body {
-    @apply bg-background text-foreground antialiased;
+    background-color: #050B1E;
+    color: #F8FAFC;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.25) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, rgba(88, 28, 135, 0.2) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.22) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(88, 28, 135, 0.18) 0px, transparent 50%);
     background-attachment: fixed;
     min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Glassmorphism utility */
+/* Premium Dark Navy Glassmorphism utility */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(15, 23, 42, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050B1E;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E293B;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
 }

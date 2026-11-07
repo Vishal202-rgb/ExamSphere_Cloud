@@ -22,10 +22,15 @@ const envSchema = z.object({
   REDIS_PASSWORD: z.string().optional(),
   REDIS_URL: z.string().optional(),
 
+  // JWT Configuration (Supports both JWT_SECRET and JWT_ACCESS_SECRET)
   JWT_SECRET: z.string().default('examsphere_default_dev_jwt_secret_key_2026'),
+  JWT_ACCESS_SECRET: z.string().optional(),
   JWT_EXPIRES_IN: z.string().default('7d'),
+
   REFRESH_TOKEN_SECRET: z.string().default('examsphere_default_dev_refresh_token_secret_key_2026'),
+  JWT_REFRESH_SECRET: z.string().optional(),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('30d'),
+
   BCRYPT_SALT_ROUNDS: z.string().default('12').transform((val) => parseInt(val, 10)),
 });
 
@@ -38,7 +43,11 @@ const parseEnv = () => {
     process.exit(1);
   }
 
-  return parsed.data;
+  const data = parsed.data;
+  data.JWT_ACCESS_SECRET = data.JWT_ACCESS_SECRET || data.JWT_SECRET;
+  data.JWT_REFRESH_SECRET = data.JWT_REFRESH_SECRET || data.REFRESH_TOKEN_SECRET;
+
+  return data;
 };
 
 export const env = parseEnv();

@@ -1,0 +1,23 @@
+{
+  "benchmark": "ExamSphere High-Concurrency Load Test (100 Concurrent Students)",
+  "executedAt": "2026-10-31T23:02:48+05:30",
+  "concurrency": 100,
+  "totalRequests": 1000,
+  "durationSeconds": 2.60,
+  "requestsPerSecond": 385.06,
+  "errorCount": 0,
+  "errorRatePercent": 0.0,
+  "statusCodes": {
+    "200": 1000
+  },
+  "latenciesMs": {
+    "min": 17.09,
+    "mean": 252.12,
+    "medianP50": 201.23,
+    "p90": 368.90,
+    "p95": 436.20,
+    "p99": 715.47,
+    "max": 798.64
+  },
+  "verdict": "PASSED - Well within departmental SLA of < 1000ms latency under 100-student concurrency"
+}
