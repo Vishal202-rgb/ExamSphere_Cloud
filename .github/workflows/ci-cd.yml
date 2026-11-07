@@ -22,6 +22,11 @@ jobs:
   backend-test:
     name: Backend Tests & Database Schema Validation
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test_db"
+      JWT_SECRET: "ci_pipeline_test_jwt_secret_key_2026_at_least_32_chars"
+      REFRESH_TOKEN_SECRET: "ci_pipeline_test_refresh_jwt_secret_key_2026"
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -39,10 +44,14 @@ jobs:
 
       - name: Validate Prisma Relational Schema
         working-directory: ./server
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test_db"
         run: npx prisma validate --schema=prisma/schema.prisma
 
       - name: Generate Prisma Client Engine
         working-directory: ./server
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test_db"
         run: npx prisma generate
 
       - name: Run Backend Automated Test Suite
@@ -73,7 +82,11 @@ jobs:
 
       - name: Install Frontend Dependencies
         working-directory: ./client
-        run: npm ci
+        run: npm ci --include=optional
+
+      - name: Lint Frontend Source Code
+        working-directory: ./client
+        run: npm run lint
 
       - name: Build Vite Production Assets (Code-Splitting Verification)
         working-directory: ./client
