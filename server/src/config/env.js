@@ -3,9 +3,16 @@
 // ==============================================================================
 
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 
-// Load environment variables from .env
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Robustly load environment configuration: check server/.env, root/.env, and process.cwd()
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 dotenv.config();
 
 const envSchema = z.object({

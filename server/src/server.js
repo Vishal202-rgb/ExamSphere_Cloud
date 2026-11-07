@@ -6,7 +6,7 @@ import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import app from './app.js';
 import { env } from './config/env.js';
-import { prisma } from './config/db.js';
+import { prisma, checkDatabaseHealth } from './config/db.js';
 import { redis } from './config/redis.js';
 import { startExpiredAttemptsWorker, stopExpiredAttemptsWorker } from './workers/expiredAttemptsWorker.js';
 import { closeEvaluationQueue } from './queues/evaluation.queue.js';
@@ -28,8 +28,9 @@ setupSocketIO(io);
 
 // Start HTTP Server
 const PORT = env.PORT || 5000;
+let workerStartupTimer = null;
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`
   ==============================================================
   🚀 ExamSphere API Server Started Successfully!
@@ -40,14 +41,41 @@ server.listen(PORT, () => {
   ==============================================================
   `);
 
-  // Start background monitoring worker for expiring in-progress attempts
-  startExpiredAttemptsWorker(15000);
+  // Verify database connectivity using Prisma before starting background workers
+  try {
+    const dbHealth = await checkDatabaseHealth();
+    if (dbHealth.status === 'healthy') {
+      console.log(`✅ [Database] PostgreSQL connected (${dbHealth.latencyMs}ms). Starting background workers...`);
+      startExpiredAttemptsWorker(15000);
+    } else {
+      console.warn(`⚠️ [Database] PostgreSQL currently unreachable (${dbHealth.error || 'Connection check failed'}). Deferring background workers.`);
+      workerStartupTimer = setInterval(async () => {
+        try {
+          const retryCheck = await checkDatabaseHealth();
+          if (retryCheck.status === 'healthy') {
+            clearInterval(workerStartupTimer);
+            workerStartupTimer = null;
+            console.log(`✅ [Database] PostgreSQL connection established (${retryCheck.latencyMs}ms). Starting background workers...`);
+            startExpiredAttemptsWorker(15000);
+          }
+        } catch {
+          // Retry silently
+        }
+      }, 10000);
+    }
+  } catch (err) {
+    console.warn(`⚠️ [Database] Initial database verification check failed: ${err.message}. Deferring background workers.`);
+  }
 });
 
 // Graceful Shutdown Handler
 const gracefulShutdown = async (signal) => {
   console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
 
+  if (workerStartupTimer) {
+    clearInterval(workerStartupTimer);
+    workerStartupTimer = null;
+  }
   stopExpiredAttemptsWorker();
   await closeEvaluationQueue();
 

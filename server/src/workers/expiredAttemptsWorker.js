@@ -8,6 +8,7 @@ import { dispatchEvaluationJob } from '../queues/evaluation.queue.js';
 
 let intervalHandle = null;
 let isRunning = false;
+let isDatabaseReachable = true;
 
 /**
  * Scan database for attempts that are IN_PROGRESS but have passed expiresAt
@@ -31,6 +32,11 @@ export const checkAndAutoSubmitExpiredAttempts = async () => {
       },
       take: 50,
     });
+
+    if (!isDatabaseReachable) {
+      isDatabaseReachable = true;
+      console.log('✅ [Expired Attempts Worker] PostgreSQL connection restored. Resuming automated session monitoring.');
+    }
 
     if (expiredAttempts.length === 0) {
       isRunning = false;
@@ -86,8 +92,23 @@ export const checkAndAutoSubmitExpiredAttempts = async () => {
       }
     }
   } catch (error) {
-    // Suppress connectivity errors during offline/test states
-    if (!error.message?.includes("Can't reach database")) {
+    const isConnError =
+      error.code === 'P1001' ||
+      error.code === 'P1002' ||
+      error.code === 'P1003' ||
+      error.code === 'P1017' ||
+      error.message?.includes("Can't reach database") ||
+      error.message?.includes('Connection terminated') ||
+      error.message?.includes('ETIMEDOUT') ||
+      error.message?.includes('ECONNREFUSED') ||
+      error.message?.includes('ECONNRESET');
+
+    if (isConnError) {
+      if (isDatabaseReachable) {
+        isDatabaseReachable = false;
+        console.warn('⚠️ [Expired Attempts Worker] PostgreSQL is currently unreachable. Pausing repetitive alerts until connection is restored.');
+      }
+    } else {
       console.error('❌ [Expired Attempts Worker] Error checking expired attempts:', error.message);
     }
   } finally {
@@ -112,6 +133,7 @@ export const stopExpiredAttemptsWorker = () => {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+    isDatabaseReachable = true;
     console.log('🛑 [Expired Attempts Worker] Background check interval stopped');
   }
 };
