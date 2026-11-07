@@ -88,6 +88,12 @@ jobs:
         working-directory: ./client
         run: npm run lint
 
+      - name: Verify Native Platform Dependencies
+        working-directory: ./client
+        run: |
+          npm ls lightningcss lightningcss-linux-x64-gnu
+          node -e "require('lightningcss-linux-x64-gnu'); console.log('Successfully resolved lightningcss-linux-x64-gnu native binding.');"
+
       - name: Build Vite Production Assets (Code-Splitting Verification)
         working-directory: ./client
         env:
