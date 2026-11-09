@@ -3,7 +3,7 @@
 // Enterprise-grade analytics portal with Recharts visualization and CSV report generation
 // ==============================================================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Component } from 'react';
 import { useSelector } from 'react-redux';
 import api from '../../services/api.js';
 import {
@@ -44,7 +44,49 @@ import {
   Legend,
 } from 'recharts';
 
-export default function AdminAnalyticsDashboard() {
+/**
+ * Robust Error Boundary to guarantee Admin Analytics never renders a completely blank page
+ */
+class AnalyticsErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[Admin Analytics] Runtime render error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-12 rounded-2xl border border-rose-500/30 bg-slate-navy/90 backdrop-blur-xl text-center space-y-4 shadow-xl">
+          <AlertCircle className="w-10 h-10 text-rose-400 mx-auto" />
+          <h2 className="text-base font-bold text-white">Analytics Visualization Encountered an Error</h2>
+          <p className="text-xs text-rose-300 max-w-md mx-auto">
+            {this.state.error?.message || 'An unexpected rendering error occurred while visualizing metrics.'}
+          </p>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              if (this.props.onRetry) this.props.onRetry();
+            }}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-blue-500/20 transition"
+          >
+            Retry Analytics View
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AdminAnalyticsDashboardContent() {
   const { isAuthenticated, role, token } = useSelector((state) => state.auth);
   const isAdmin = Boolean(isAuthenticated && token && (role === 'ADMIN' || role === 'SUPER_ADMIN'));
 
@@ -67,22 +109,47 @@ export default function AdminAnalyticsDashboard() {
     section: '',
   });
 
-  // Load departments and courses for filter dropdowns
+  // Load departments and courses for filter dropdowns safely
   useEffect(() => {
     if (!isAdmin) return;
+    let isMounted = true;
+
     const loadOptions = async () => {
       try {
         const [deptRes, courseRes] = await Promise.all([
-          api.get('/departments').catch(() => ({ data: [] })),
-          api.get('/courses').catch(() => ({ data: [] })),
+          api.get('/departments', { params: { limit: 100 } }).catch(() => null),
+          api.get('/courses', { params: { limit: 100 } }).catch(() => null),
         ]);
-        if (deptRes?.data) setDepartments(deptRes.data);
-        if (courseRes?.data) setCourses(courseRes.data);
+
+        if (!isMounted) return;
+
+        // Safely extract departments array from various response envelope structures
+        const deptList =
+          deptRes?.data?.departments ||
+          deptRes?.data?.data ||
+          (Array.isArray(deptRes?.data) ? deptRes.data : null) ||
+          deptRes?.departments ||
+          [];
+        setDepartments(Array.isArray(deptList) ? deptList : []);
+
+        // Safely extract courses array from various response envelope structures
+        const courseList =
+          courseRes?.data?.courses ||
+          courseRes?.data?.data ||
+          (Array.isArray(courseRes?.data) ? courseRes.data : null) ||
+          courseRes?.courses ||
+          [];
+        setCourses(Array.isArray(courseList) ? courseList : []);
       } catch {
         // Suppress transient options load
       }
     };
+
     loadOptions();
+
+    return () => {
+      isMounted = false;
+    };
   }, [isAdmin]);
 
   const fetchAnalytics = useCallback(async () => {
@@ -96,11 +163,19 @@ export default function AdminAnalyticsDashboard() {
       });
 
       const res = await api.get('/analytics/admin/overview', { params });
-      if (res?.data) {
-        setData(res.data);
+      // Safely extract analytics overview & charts payload from response
+      const payload = res?.data?.overview ? res.data : (res?.data || res);
+      if (payload && typeof payload === 'object') {
+        setData(payload);
+      } else {
+        setData(null);
       }
     } catch (err) {
-      setError(err.message || 'Failed to load system analytics');
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to load system analytics';
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -113,7 +188,14 @@ export default function AdminAnalyticsDashboard() {
   }, [fetchAnalytics, isAdmin]);
 
   if (!isAdmin) {
-    return null;
+    return (
+      <div className="min-h-[50vh] flex flex-col items-center justify-center p-8 space-y-3">
+        <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+        <p className="text-xs text-slate-400 font-mono tracking-wider uppercase animate-pulse">
+          Verifying administrative authorization...
+        </p>
+      </div>
+    );
   }
 
   const handleFilterChange = (key, val) => {
@@ -140,7 +222,7 @@ export default function AdminAnalyticsDashboard() {
         responseType: 'blob',
       });
 
-      const blob = new Blob([res], { type: 'text/csv' });
+      const blob = res instanceof Blob ? res : new Blob([res], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -150,7 +232,7 @@ export default function AdminAnalyticsDashboard() {
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      alert(`Export failed: ${err.message}`);
+      alert(`Export failed: ${err?.message || 'Unable to generate CSV'}`);
     } finally {
       setExporting(false);
     }
@@ -203,7 +285,7 @@ export default function AdminAnalyticsDashboard() {
           className="bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-100 focus:outline-none focus:border-blue-500"
         >
           <option value="">All Departments</option>
-          {departments.map((d) => (
+          {(Array.isArray(departments) ? departments : []).map((d) => (
             <option key={d.id} value={d.id}>
               {d.code} - {d.name}
             </option>
@@ -217,7 +299,7 @@ export default function AdminAnalyticsDashboard() {
           className="bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-100 focus:outline-none focus:border-blue-500"
         >
           <option value="">All Courses</option>
-          {courses.map((c) => (
+          {(Array.isArray(courses) ? courses : []).map((c) => (
             <option key={c.id} value={c.id}>
               {c.code} - {c.title}
             </option>
@@ -268,21 +350,35 @@ export default function AdminAnalyticsDashboard() {
         </button>
       </div>
 
-      {/* Loading & Error States */}
+      {/* Loading, Error & Empty States */}
       {loading ? (
-        <div className="p-16 rounded-2xl border border-slate-800 bg-slate-navy/90 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
+        <div className="p-16 rounded-2xl border border-slate-800 bg-slate-navy/90 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 shadow-xl backdrop-blur-xl">
           <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
           <p className="text-sm font-medium">Aggregating analytical metrics...</p>
         </div>
       ) : error ? (
-        <div className="p-12 rounded-2xl border border-slate-800 bg-slate-navy/90 text-center text-rose-400 space-y-3">
+        <div className="p-12 rounded-2xl border border-slate-800 bg-slate-navy/90 text-center text-rose-400 space-y-3 shadow-xl backdrop-blur-xl">
           <AlertCircle className="w-8 h-8 mx-auto text-rose-400" />
           <p className="text-sm font-semibold">{error}</p>
           <button
             onClick={fetchAnalytics}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-blue-500/20"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-blue-500/20 transition"
           >
             Retry Loading
+          </button>
+        </div>
+      ) : !data || Object.keys(data).length === 0 ? (
+        <div className="p-16 rounded-2xl border border-slate-800 bg-slate-navy/90 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 shadow-xl backdrop-blur-xl">
+          <BarChart3 className="w-10 h-10 text-slate-500" />
+          <h3 className="text-sm font-semibold text-white">No Analytics Data Available</h3>
+          <p className="text-xs text-slate-400 max-w-sm">
+            No analytical records match the current filter criteria.
+          </p>
+          <button
+            onClick={handleResetFilters}
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition"
+          >
+            Reset Filters
           </button>
         </div>
       ) : (
@@ -295,7 +391,7 @@ export default function AdminAnalyticsDashboard() {
                 <span>Active Students</span>
                 <GraduationCap className="w-4 h-4 text-blue-400" />
               </div>
-              <div className="text-2xl font-bold text-white">{overview.totalStudents || 0}</div>
+              <div className="text-2xl font-bold text-white">{overview.totalStudents ?? 0}</div>
               <div className="text-[10px] text-blue-400 font-medium">Eligible candidates</div>
             </div>
 
@@ -305,7 +401,7 @@ export default function AdminAnalyticsDashboard() {
                 <span>Total Faculty</span>
                 <Users className="w-4 h-4 text-purple-400" />
               </div>
-              <div className="text-2xl font-bold text-white">{overview.totalFaculty || 0}</div>
+              <div className="text-2xl font-bold text-white">{overview.totalFaculty ?? 0}</div>
               <div className="text-[10px] text-purple-400 font-medium">Active instructors</div>
             </div>
 
@@ -315,9 +411,9 @@ export default function AdminAnalyticsDashboard() {
                 <span>Total Exams</span>
                 <FileCheck2 className="w-4 h-4 text-emerald-400" />
               </div>
-              <div className="text-2xl font-bold text-white">{overview.totalExams || 0}</div>
+              <div className="text-2xl font-bold text-white">{overview.totalExams ?? 0}</div>
               <div className="text-[10px] text-emerald-400 font-medium">
-                {overview.activeExams || 0} Live / {overview.completedExams || 0} Done
+                {overview.activeExams ?? 0} Live / {overview.completedExams ?? 0} Done
               </div>
             </div>
 
@@ -328,7 +424,7 @@ export default function AdminAnalyticsDashboard() {
                 <TrendingUp className="w-4 h-4 text-cyan-400" />
               </div>
               <div className="text-2xl font-bold text-white font-mono">
-                {overview.overallAverageScore || 0}%
+                {overview.overallAverageScore ?? 0}%
               </div>
               <div className="text-[10px] text-cyan-400 font-medium">Published results</div>
             </div>
@@ -340,10 +436,10 @@ export default function AdminAnalyticsDashboard() {
                 <Percent className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-bold text-emerald-400 font-mono">
-                {overview.overallPassPercentage || 0}%
+                {overview.overallPassPercentage ?? 0}%
               </div>
               <div className="text-[10px] text-slate-400 font-medium">
-                Participation: {overview.studentParticipationRate || 0}%
+                Participation: {overview.studentParticipationRate ?? 0}%
               </div>
             </div>
           </div>
@@ -351,7 +447,7 @@ export default function AdminAnalyticsDashboard() {
           {/* Charts Row 1: Participation & Average Marks Over Time (Line / Area) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Participation Over Time (7 cols) */}
-            <div className="lg:col-span-7 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4">
+            <div className="lg:col-span-7 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4 min-w-0">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
@@ -362,9 +458,9 @@ export default function AdminAnalyticsDashboard() {
                 </div>
               </div>
 
-              <div className="h-64 w-full">
-                {charts.examParticipationOverTime && charts.examParticipationOverTime.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
+              <div className="h-64 w-full min-w-0">
+                {Array.isArray(charts?.examParticipationOverTime) && charts.examParticipationOverTime.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                     <AreaChart data={charts.examParticipationOverTime}>
                       <defs>
                         <linearGradient id="attemptsGrad" x1="0" y1="0" x2="0" y2="1">
@@ -404,7 +500,7 @@ export default function AdminAnalyticsDashboard() {
             </div>
 
             {/* Pass vs Fail Distribution (5 cols) */}
-            <div className="lg:col-span-5 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4">
+            <div className="lg:col-span-5 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4 min-w-0">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
@@ -415,9 +511,9 @@ export default function AdminAnalyticsDashboard() {
                 </div>
               </div>
 
-              <div className="h-64 w-full">
-                {charts.passFailDistribution && charts.passFailDistribution.some((p) => p.value > 0) ? (
-                  <ResponsiveContainer width="100%" height="100%">
+              <div className="h-64 w-full min-w-0">
+                {Array.isArray(charts?.passFailDistribution) && charts.passFailDistribution.some((p) => Number(p?.value) > 0) ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                     <PieChart>
                       <Pie
                         data={charts.passFailDistribution}
@@ -431,7 +527,7 @@ export default function AdminAnalyticsDashboard() {
                         {charts.passFailDistribution.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
-                            fill={entry.name === 'Passed' ? '#10B981' : '#EF4444'}
+                            fill={entry?.name === 'Passed' ? '#10B981' : '#EF4444'}
                           />
                         ))}
                       </Pie>
@@ -464,7 +560,7 @@ export default function AdminAnalyticsDashboard() {
           {/* Charts Row 2: Course-Wise Performance & Student Distribution */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Course Performance Bar Chart (6 cols) */}
-            <div className="lg:col-span-6 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4">
+            <div className="lg:col-span-6 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4 min-w-0">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <BookOpen className="w-4 h-4 text-purple-400" />
@@ -473,9 +569,9 @@ export default function AdminAnalyticsDashboard() {
                 <p className="text-[11px] text-slate-400">Average percentage achieved per course</p>
               </div>
 
-              <div className="h-64 w-full">
-                {charts.courseWisePerformance && charts.courseWisePerformance.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
+              <div className="h-64 w-full min-w-0">
+                {Array.isArray(charts?.courseWisePerformance) && charts.courseWisePerformance.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                     <BarChart data={charts.courseWisePerformance}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
                       <XAxis dataKey="courseCode" stroke="#64748B" fontSize={10} />
@@ -502,7 +598,7 @@ export default function AdminAnalyticsDashboard() {
             </div>
 
             {/* Score Brackets Distribution (6 cols) */}
-            <div className="lg:col-span-6 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4">
+            <div className="lg:col-span-6 p-5 rounded-2xl border border-slate-800/80 bg-slate-navy/90 backdrop-blur-xl shadow-xl space-y-4 min-w-0">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Award className="w-4 h-4 text-cyan-400" />
@@ -511,10 +607,10 @@ export default function AdminAnalyticsDashboard() {
                 <p className="text-[11px] text-slate-400">Candidate score distribution frequencies</p>
               </div>
 
-              <div className="h-64 w-full">
-                {charts.studentPerformanceDistribution &&
-                charts.studentPerformanceDistribution.some((d) => d.count > 0) ? (
-                  <ResponsiveContainer width="100%" height="100%">
+              <div className="h-64 w-full min-w-0">
+                {Array.isArray(charts?.studentPerformanceDistribution) &&
+                charts.studentPerformanceDistribution.some((d) => Number(d?.count) > 0) ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                     <BarChart data={charts.studentPerformanceDistribution}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
                       <XAxis dataKey="bracket" stroke="#64748B" fontSize={10} />
@@ -543,5 +639,13 @@ export default function AdminAnalyticsDashboard() {
         </>
       )}
     </div>
+  );
+}
+
+export default function AdminAnalyticsDashboard() {
+  return (
+    <AnalyticsErrorBoundary>
+      <AdminAnalyticsDashboardContent />
+    </AnalyticsErrorBoundary>
   );
 }
