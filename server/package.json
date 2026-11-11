@@ -11,7 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed": "node prisma/seed.js",
-    "test": "node --test tests/examination_engine.test.js tests/evaluation_and_monitoring.test.js tests/analytics_coding_proctoring.test.js",
+    "test": "node --test tests/examination_engine.test.js tests/evaluation_and_monitoring.test.js tests/analytics_coding_proctoring.test.js tests/multiadmin_onboarding_rbac.test.js",
     "test:all": "node --test tests/examination_engine.test.js tests/evaluation_and_monitoring.test.js tests/api_routes.test.js",
     "test:db": "node src/scripts/testConnection.js"
   },
@@ -47,6 +47,7 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.5.0",
+    "nodemailer": "^10.5.0",
     "socket.io": "^4.8.1",
     "zod": "^3.24.2"
   },

@@ -153,9 +153,10 @@ export class AuthService {
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
     const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    await authRepository.setResetPasswordToken(user.id, resetToken, expiry);
+    await authRepository.setResetPasswordToken(user.id, tokenHash, expiry);
 
     // Audit log
     await prisma.auditLog.create({
@@ -176,7 +177,12 @@ export class AuthService {
    * Reset password with valid token
    */
   async resetPassword(token, newPassword) {
-    const user = await authRepository.findByResetToken(token);
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    let user = await authRepository.findByResetToken(tokenHash);
+    if (!user) {
+      // Fallback for legacy unhashed tokens
+      user = await authRepository.findByResetToken(token);
+    }
     if (!user) {
       throw ApiError.badRequest('Password reset token is invalid or has expired.');
     }
@@ -194,6 +200,72 @@ export class AuthService {
     }).catch(() => {});
 
     return { message: 'Password has been successfully updated. You may now log in.' };
+  }
+
+  /**
+   * Bootstrap Initial Super Admin (Controlled One-Time First Setup)
+   */
+  async bootstrapInitialSuperAdmin({ name, email, password, bootstrapToken, ipAddress, userAgent }) {
+    // Check if ANY active Super Admin already exists in database
+    const existingSuperAdminCount = await prisma.user.count({
+      where: {
+        role: 'SUPER_ADMIN',
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+
+    if (existingSuperAdminCount > 0) {
+      throw ApiError.forbidden(
+        'Bootstrap is disabled: The platform has already been initialized with a Super Admin.'
+      );
+    }
+
+    // Optional environment token guard if configured
+    if (env.BOOTSTRAP_TOKEN && bootstrapToken !== env.BOOTSTRAP_TOKEN) {
+      throw ApiError.unauthorized('Invalid bootstrap authorization token');
+    }
+
+    // Check email uniqueness
+    const existingUser = await authRepository.findByEmail(email);
+    if (existingUser) {
+      throw ApiError.conflict(
+        `An account with email '${email}' already exists. Use a unique email or the Super Admin promotion workflow.`
+      );
+    }
+
+    const hashedPassword = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS || 12);
+
+    const superAdmin = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: 'SUPER_ADMIN',
+        departmentId: null,
+        isActive: true,
+        isDemo: false,
+        isEmailVerified: true,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: superAdmin.id,
+        action: 'INITIAL_SUPER_ADMIN_BOOTSTRAPPED',
+        resource: 'USER',
+        resourceId: superAdmin.id,
+        ipAddress: ipAddress || null,
+        userAgent: userAgent || null,
+        metadata: {
+          email: superAdmin.email,
+          name: superAdmin.name,
+          initializedAt: new Date().toISOString(),
+        },
+      },
+    }).catch(() => {});
+
+    return this.sanitizeUser(superAdmin);
   }
 
   /**

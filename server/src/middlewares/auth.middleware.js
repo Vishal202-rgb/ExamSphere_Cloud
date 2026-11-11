@@ -35,14 +35,20 @@ export const authenticateUser = async (req, res, next) => {
         role: true,
         departmentId: true,
         rollNumber: true,
+        employeeId: true,
+        designation: true,
+        isDemo: true,
+        isEmailVerified: true,
+        mfaEnabled: true,
         batch: true,
         section: true,
         avatarUrl: true,
         isActive: true,
+        deletedAt: true,
       },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       return next(ApiError.unauthorized('User account no longer exists.'));
     }
 
@@ -86,14 +92,20 @@ export const optionalAuthenticateUser = async (req, res, next) => {
         role: true,
         departmentId: true,
         rollNumber: true,
+        employeeId: true,
+        designation: true,
+        isDemo: true,
+        isEmailVerified: true,
+        mfaEnabled: true,
         batch: true,
         section: true,
         avatarUrl: true,
         isActive: true,
+        deletedAt: true,
       },
     });
 
-    if (user && user.isActive) {
+    if (user && user.isActive && !user.deletedAt) {
       req.user = user;
     }
   } catch (error) {

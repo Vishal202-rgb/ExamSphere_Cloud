@@ -1,5 +1,6 @@
 // ==============================================================================
 // ExamSphere – Course Service
+// Scoped course lifecycle management and instructor assignment
 // ==============================================================================
 
 import { courseRepository } from './courses.repository.js';
@@ -8,8 +9,12 @@ import { ApiError } from '../../utils/apiError.js';
 import { prisma } from '../../config/db.js';
 
 export class CourseService {
-  async getCourses(params) {
-    return courseRepository.findAll(params);
+  async getCourses(params, requestingUser) {
+    const queryParams = { ...params };
+    if (requestingUser?.role === 'DEPARTMENT_ADMIN') {
+      queryParams.departmentId = requestingUser.departmentId;
+    }
+    return courseRepository.findAll(queryParams);
   }
 
   async getCourseById(id) {
@@ -20,7 +25,16 @@ export class CourseService {
     return course;
   }
 
-  async createCourse(data, adminUserId) {
+  async createCourse(data, adminUser) {
+    const adminUserId = typeof adminUser === 'object' ? adminUser.id : adminUser;
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN') {
+      if (data.departmentId && data.departmentId !== adminUser.departmentId) {
+        throw ApiError.forbidden('Forbidden: You can only create courses within your assigned department');
+      }
+      data.departmentId = adminUser.departmentId;
+    }
+
     // Verify department exists
     const dept = await departmentRepository.findById(data.departmentId);
     if (!dept) {
@@ -40,17 +54,25 @@ export class CourseService {
         action: 'COURSE_CREATED',
         resource: 'COURSE',
         resourceId: course.id,
-        metadata: { code: course.code, title: course.title },
+        metadata: { code: course.code, title: course.title, departmentId: course.departmentId },
       },
     }).catch(() => {});
 
     return course;
   }
 
-  async updateCourse(id, data, adminUserId) {
-    await this.getCourseById(id);
+  async updateCourse(id, data, adminUser) {
+    const adminUserId = typeof adminUser === 'object' ? adminUser.id : adminUser;
+    const course = await this.getCourseById(id);
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN' && course.departmentId !== adminUser.departmentId) {
+      throw ApiError.forbidden('Forbidden: You can only update courses in your assigned department');
+    }
 
     if (data.departmentId) {
+      if (adminUser?.role === 'DEPARTMENT_ADMIN' && data.departmentId !== adminUser.departmentId) {
+        throw ApiError.forbidden('Forbidden: You cannot transfer courses to another department');
+      }
       const dept = await departmentRepository.findById(data.departmentId);
       if (!dept) {
         throw ApiError.badRequest(`Department with ID ${data.departmentId} does not exist`);
@@ -79,8 +101,13 @@ export class CourseService {
     return updated;
   }
 
-  async deleteCourse(id, adminUserId) {
+  async deleteCourse(id, adminUser) {
+    const adminUserId = typeof adminUser === 'object' ? adminUser.id : adminUser;
     const course = await this.getCourseById(id);
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN' && course.departmentId !== adminUser.departmentId) {
+      throw ApiError.forbidden('Forbidden: You can only delete courses in your assigned department');
+    }
 
     if (course._count?.exams > 0 || course._count?.enrolledStudents > 0) {
       // Soft-deactivate if dependent exam/student records exist
@@ -101,8 +128,13 @@ export class CourseService {
     return { message: 'Course successfully removed' };
   }
 
-  async assignFaculty(courseId, facultyId, isCoordinator, adminUserId) {
-    await this.getCourseById(courseId);
+  async assignFaculty(courseId, facultyId, isCoordinator, adminUser) {
+    const adminUserId = typeof adminUser === 'object' ? adminUser.id : adminUser;
+    const course = await this.getCourseById(courseId);
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN' && course.departmentId !== adminUser.departmentId) {
+      throw ApiError.forbidden('Forbidden: You can only assign faculty to courses in your assigned department');
+    }
 
     // Verify faculty user
     const facultyUser = await prisma.user.findUnique({
@@ -111,6 +143,10 @@ export class CourseService {
 
     if (!facultyUser || facultyUser.role !== 'FACULTY') {
       throw ApiError.badRequest(`User with ID ${facultyId} is not a valid faculty member`);
+    }
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN' && facultyUser.departmentId !== adminUser.departmentId) {
+      throw ApiError.badRequest('Faculty member belongs to a different department');
     }
 
     const assignment = await courseRepository.assignFaculty(courseId, facultyId, isCoordinator);
@@ -127,8 +163,14 @@ export class CourseService {
     return assignment;
   }
 
-  async removeFaculty(courseId, facultyId, adminUserId) {
-    await this.getCourseById(courseId);
+  async removeFaculty(courseId, facultyId, adminUser) {
+    const adminUserId = typeof adminUser === 'object' ? adminUser.id : adminUser;
+    const course = await this.getCourseById(courseId);
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN' && course.departmentId !== adminUser.departmentId) {
+      throw ApiError.forbidden('Forbidden: Course belongs to a different department');
+    }
+
     await courseRepository.removeFaculty(courseId, facultyId);
 
     await prisma.auditLog.create({

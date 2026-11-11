@@ -14,9 +14,14 @@ export class UserRepository {
     search = '',
     page = 1,
     limit = 10,
+    includeDeleted = false,
   }) {
     const skip = (page - 1) * limit;
     const where = {};
+
+    if (!includeDeleted) {
+      where.deletedAt = null;
+    }
 
     if (role) {
       where.role = role;
@@ -43,6 +48,7 @@ export class UserRepository {
         { name: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
         { rollNumber: { contains: search, mode: 'insensitive' } },
+        { employeeId: { contains: search, mode: 'insensitive' } },
       ];
     }
 
@@ -61,11 +67,15 @@ export class UserRepository {
           department: {
             select: { id: true, name: true, code: true },
           },
+          employeeId: true,
+          designation: true,
           rollNumber: true,
           batch: true,
           section: true,
           avatarUrl: true,
           isActive: true,
+          isDemo: true,
+          isEmailVerified: true,
           createdAt: true,
           updatedAt: true,
           _count: {
@@ -115,6 +125,11 @@ export class UserRepository {
     return prisma.user.findUnique({ where: { rollNumber } });
   }
 
+  async findByEmployeeId(employeeId) {
+    if (!employeeId) return null;
+    return prisma.user.findUnique({ where: { employeeId } });
+  }
+
   async create(data) {
     return prisma.user.create({
       data,
@@ -124,10 +139,17 @@ export class UserRepository {
         email: true,
         role: true,
         departmentId: true,
+        department: {
+          select: { id: true, name: true, code: true },
+        },
+        employeeId: true,
+        designation: true,
         rollNumber: true,
         batch: true,
         section: true,
         isActive: true,
+        isDemo: true,
+        isEmailVerified: true,
         createdAt: true,
       },
     });
@@ -143,17 +165,33 @@ export class UserRepository {
         email: true,
         role: true,
         departmentId: true,
+        department: {
+          select: { id: true, name: true, code: true },
+        },
+        employeeId: true,
+        designation: true,
         rollNumber: true,
         batch: true,
         section: true,
         isActive: true,
+        isDemo: true,
+        isEmailVerified: true,
         updatedAt: true,
       },
     });
   }
 
+  /**
+   * Soft delete user to preserve academic record integrity
+   */
   async delete(id) {
-    return prisma.user.delete({ where: { id } });
+    return prisma.user.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        isActive: false,
+      },
+    });
   }
 
   /**
@@ -184,7 +222,7 @@ export class UserRepository {
    * Get all student records for CSV export
    */
   async exportStudents({ departmentId, batch, section }) {
-    const where = { role: 'STUDENT' };
+    const where = { role: 'STUDENT', deletedAt: null };
     if (departmentId) where.departmentId = departmentId;
     if (batch) where.batch = batch;
     if (section) where.section = section;

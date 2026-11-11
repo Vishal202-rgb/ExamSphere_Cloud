@@ -31,6 +31,7 @@ import notificationsRoutes from './modules/notifications/notifications.routes.js
 import analyticsRoutes from './modules/analytics/analytics.routes.js';
 import codingRoutes from './modules/coding/coding.routes.js';
 import proctoringRoutes from './modules/proctoring/proctoring.routes.js';
+import invitationRoutes from './modules/invitations/invitations.routes.js';
 
 const app = express();
 
@@ -103,6 +104,7 @@ app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/coding', codingRoutes);
 app.use('/api/v1/proctoring', proctoringRoutes);
+app.use('/api/v1/invitations', invitationRoutes);
 
 // 9. 404 handler for undefined routes
 app.use(notFound);

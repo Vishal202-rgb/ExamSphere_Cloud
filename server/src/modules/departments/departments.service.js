@@ -49,7 +49,13 @@ export class DepartmentService {
     return department;
   }
 
-  async updateDepartment(id, data, adminUserId) {
+  async updateDepartment(id, data, adminUser) {
+    const adminUserId = typeof adminUser === 'object' ? adminUser.id : adminUser;
+
+    if (adminUser?.role === 'DEPARTMENT_ADMIN' && id !== adminUser.departmentId) {
+      throw ApiError.forbidden('Forbidden: You can only update your assigned department');
+    }
+
     await this.getDepartmentById(id);
 
     if (data.code) {

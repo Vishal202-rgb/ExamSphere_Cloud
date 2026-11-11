@@ -24,23 +24,24 @@ const router = Router();
 router.get('/', authenticateUser, getDepartments);
 router.get('/:id', authenticateUser, getDepartmentById);
 
-// Admin-only write access
+// Super Admin-only department registration and deletion
 router.post(
   '/',
   authenticateUser,
-  authorizeRoles('ADMIN'),
+  authorizeRoles('SUPER_ADMIN'),
   validateRequest(createDepartmentSchema),
   createDepartment
 );
 
+router.delete('/:id', authenticateUser, authorizeRoles('SUPER_ADMIN'), deleteDepartment);
+
+// Super Admin or Department Admin (scoped to assigned department)
 router.put(
   '/:id',
   authenticateUser,
-  authorizeRoles('ADMIN'),
+  authorizeRoles('SUPER_ADMIN', 'DEPARTMENT_ADMIN', 'ADMIN'),
   validateRequest(updateDepartmentSchema),
   updateDepartment
 );
-
-router.delete('/:id', authenticateUser, authorizeRoles('ADMIN'), deleteDepartment);
 
 export default router;

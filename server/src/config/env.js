@@ -39,6 +39,26 @@ const envSchema = z.object({
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('30d'),
 
   BCRYPT_SALT_ROUNDS: z.string().default('12').transform((val) => parseInt(val, 10)),
+
+  // SMTP Email Transport Configuration
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 587)),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default('ExamSphere <noreply@examsphere.io>'),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((val) => val === 'true'),
+
+  // Initial Super Admin Bootstrap Token Guard
+  BOOTSTRAP_TOKEN: z.string().optional(),
+  INITIAL_SUPERADMIN_NAME: z.string().optional(),
+  INITIAL_SUPERADMIN_EMAIL: z.string().optional(),
+  INITIAL_SUPERADMIN_PASSWORD: z.string().optional(),
 });
 
 const parseEnv = () => {

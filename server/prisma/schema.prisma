@@ -18,9 +18,18 @@ datasource db {
 // ------------------------------------------------------------------------------
 
 enum UserRole {
+  SUPER_ADMIN
+  DEPARTMENT_ADMIN
   ADMIN
   FACULTY
   STUDENT
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
 }
 
 enum QuestionType {
@@ -134,6 +143,7 @@ model Department {
   // Relationships
   users       User[]
   courses     Course[]
+  invitations Invitation[]
 
   @@index([name])
   @@index([code])
@@ -141,7 +151,7 @@ model Department {
 }
 
 // ------------------------------------------------------------------------------
-// 2. User Model (RBAC: Admin, Faculty, Student)
+// 2. User Model (RBAC: Super Admin, Department Admin, Faculty, Student)
 // ------------------------------------------------------------------------------
 
 model User {
@@ -152,11 +162,18 @@ model User {
   role         UserRole   @default(STUDENT)
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  employeeId   String?    @unique // Unique institutional ID for Faculty and Staff
+  designation  String?    // e.g. "Professor", "HOD", "Dean"
   rollNumber   String?    @unique // Nullable for Faculty and Admin
   batch        String?    // e.g. "2023-2027"
   section      String?    // e.g. "A"
   avatarUrl    String?
   isActive     Boolean    @default(true)
+  isDemo       Boolean    @default(false) // Isolation between demo and institutional accounts
+  isEmailVerified     Boolean    @default(false)
+  mfaSecret           String?
+  mfaEnabled          Boolean    @default(false)
+  deletedAt           DateTime?  // Soft deletion timestamp
   refreshToken        String?    @db.Text
   resetPasswordToken  String?    @db.Text
   resetPasswordExpiry DateTime?
@@ -177,13 +194,43 @@ model User {
   evaluatedAnswers   Answer[]            @relation("EvaluatedAnswers")
   codingSubmissions  CodingSubmission[]  @relation("StudentCodingSubmissions")
   proctoringEvents   ProctoringEvent[]   @relation("StudentProctoringEvents")
+  sentInvitations    Invitation[]        @relation("SentInvitations")
 
   @@index([email])
   @@index([role])
   @@index([departmentId])
+  @@index([employeeId])
   @@index([rollNumber])
+  @@index([isDemo])
+  @@index([deletedAt])
   @@index([batch, section])
   @@map("users")
+}
+
+// ------------------------------------------------------------------------------
+// 2b. Invitation Model (Single-Use Token Hashed Onboarding)
+// ------------------------------------------------------------------------------
+
+model Invitation {
+  id           String           @id @default(uuid())
+  email        String
+  role         UserRole
+  departmentId String?
+  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  tokenHash    String           @unique // SHA-256 hash of single-use token
+  invitedById  String
+  invitedBy    User             @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
+  status       InvitationStatus @default(PENDING)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  metadata     Json?            // employeeId, designation, rollNumber, batch, section, courseIds
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([email])
+  @@index([tokenHash])
+  @@index([status])
+  @@map("invitations")
 }
 
 // ------------------------------------------------------------------------------

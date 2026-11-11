@@ -25,7 +25,7 @@ export default function LoginPage() {
 
   React.useEffect(() => {
     if (isAuthenticated && token && role) {
-      if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'DEPARTMENT_ADMIN') {
         navigate('/admin', { replace: true });
       } else if (role === 'FACULTY') {
         navigate('/faculty', { replace: true });
@@ -41,7 +41,9 @@ export default function LoginPage() {
   const [localError, setLocalError] = useState('');
   const [showForgotModal, setShowForgotModal] = useState(false);
 
-  // Quick preset accounts for testing/evaluating all 3 roles
+  // Quick preset accounts for testing/evaluating in development environments
+  const showDemoAccounts = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_DEMO_ACCOUNTS === 'true';
+
   const demoAccounts = [
     {
       role: 'ADMIN',
@@ -56,7 +58,7 @@ export default function LoginPage() {
       label: 'Faculty Portal',
       email: 'alan.turing@examsphere.io',
       pass: 'Faculty@12345',
-      badge: 'Department Lead',
+      badge: 'Department Faculty',
       color: 'bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30 text-purple-400',
     },
     {
@@ -111,6 +113,7 @@ export default function LoginPage() {
           switch (userRole) {
             case 'ADMIN':
             case 'SUPER_ADMIN':
+            case 'DEPARTMENT_ADMIN':
               return '/admin';
             case 'FACULTY':
               return '/faculty';
@@ -123,7 +126,7 @@ export default function LoginPage() {
 
         const isAuthorizedForPath = (path, userRole) => {
           if (!path || path === '/' || path.includes('/login')) return false;
-          if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
+          if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN' || userRole === 'DEPARTMENT_ADMIN') {
             return path.startsWith('/admin') || path.startsWith('/notifications');
           }
           if (userRole === 'FACULTY') {
@@ -167,31 +170,33 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Quick Demo Role Selector */}
-        <div className="mt-6 bg-[#0F172A] rounded-2xl p-4 border border-slate-800 shadow-xl">
-          <div className="flex items-center justify-between text-xs text-slate-400 px-1 mb-2.5">
-            <span className="flex items-center gap-1.5 font-semibold text-slate-200">
-              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-              Quick Demo Fill:
-            </span>
-            <span className="text-[11px] text-slate-500">Click to autofill credentials</span>
+        {/* Quick Demo Role Selector (Isolated to Development/Evaluation Environments) */}
+        {showDemoAccounts && (
+          <div className="mt-6 bg-[#0F172A] rounded-2xl p-4 border border-slate-800 shadow-xl">
+            <div className="flex items-center justify-between text-xs text-slate-400 px-1 mb-2.5">
+              <span className="flex items-center gap-1.5 font-semibold text-slate-200">
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                Quick Demo Fill (Dev Mode):
+              </span>
+              <span className="text-[11px] text-slate-500">Click to autofill credentials</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2.5">
+              {demoAccounts.map((acc) => (
+                <button
+                  key={acc.role}
+                  type="button"
+                  onClick={() => handleQuickFill(acc)}
+                  className={`text-left p-3 rounded-xl border transition ${acc.color}`}
+                >
+                  <div className="text-xs font-bold">
+                    {acc.label.split(' ')[0]}
+                  </div>
+                  <div className="text-[10px] opacity-80 truncate mt-0.5">{acc.badge}</div>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-2.5">
-            {demoAccounts.map((acc) => (
-              <button
-                key={acc.role}
-                type="button"
-                onClick={() => handleQuickFill(acc)}
-                className={`text-left p-3 rounded-xl border transition ${acc.color}`}
-              >
-                <div className="text-xs font-bold">
-                  {acc.role}
-                </div>
-                <div className="text-[10px] opacity-80 truncate mt-0.5">{acc.badge}</div>
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* Main Login Form Card */}
         <div className="mt-4 bg-[#0F172A] py-8 px-6 shadow-2xl rounded-2xl border border-slate-800 sm:px-10">

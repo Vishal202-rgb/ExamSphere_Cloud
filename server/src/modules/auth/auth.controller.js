@@ -117,3 +117,16 @@ export const getMe = asyncHandler(async (req, res) => {
   const user = await authService.getProfile(req.user.id);
   return res.status(200).json(ApiResponse.success(user, 'User profile retrieved'));
 });
+
+export const bootstrap = asyncHandler(async (req, res) => {
+  const { name, email, password, bootstrapToken } = req.body;
+  const user = await authService.bootstrapInitialSuperAdmin({
+    name,
+    email,
+    password,
+    bootstrapToken,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+  return res.status(201).json(ApiResponse.created(user, 'Initial Super Admin bootstrapped successfully'));
+});

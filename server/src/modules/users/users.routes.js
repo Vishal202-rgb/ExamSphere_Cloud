@@ -7,6 +7,7 @@ import multer from 'multer';
 import {
   getUsers,
   getUserById,
+  createDepartmentAdmin,
   createFaculty,
   createStudent,
   updateUser,
@@ -15,6 +16,7 @@ import {
   exportStudents,
 } from './users.controller.js';
 import {
+  createDepartmentAdminSchema,
   createFacultySchema,
   createStudentSchema,
   updateUserSchema,
@@ -32,9 +34,9 @@ const upload = multer({
 
 const router = Router();
 
-// All routes require authenticated Admin privileges
+// Base protection: Super Admins and Department Admins
 router.use(authenticateUser);
-router.use(authorizeRoles('ADMIN'));
+router.use(authorizeRoles('SUPER_ADMIN', 'DEPARTMENT_ADMIN', 'ADMIN'));
 
 router.get('/', getUsers);
 router.get('/students/export', exportStudents);
@@ -48,7 +50,15 @@ router.get('/students', (req, res, next) => {
 });
 router.get('/:id', getUserById);
 
+// Super Admin Only: Provision Department Administrators
+router.post(
+  '/department-admins',
+  authorizeRoles('SUPER_ADMIN'),
+  validateRequest(createDepartmentAdminSchema),
+  createDepartmentAdmin
+);
 
+// Department Admins and Super Admins: Provision Faculty & Students
 router.post('/faculty', validateRequest(createFacultySchema), createFaculty);
 router.post('/students', validateRequest(createStudentSchema), createStudent);
 router.post('/students/bulk-import', upload.single('file'), bulkImportStudents);

@@ -1,33 +1,29 @@
 # ExamSphere – Cloud-Based Online Examination & Assessment Platform
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
 ![Architecture](https://img.shields.io/badge/architecture-Modular%20Monolith-indigo.svg)
-![Phases](https://img.shields.io/badge/phases%20completed-1%20through%2015-emerald.svg)
+![Security](https://img.shields.io/badge/security-Multi--Admin%20%26%20RBAC-emerald.svg)
 ![License](https://img.shields.io/badge/license-ISC-green.svg)
 
-**ExamSphere** is an enterprise-grade, cloud-native online examination and automated assessment platform designed to deliver secure, cheat-resistant, and high-concurrency exams. Built with a modular monolith architecture, it supports fine-grained Role-Based Access Control (RBAC), timed exam sessions, real-time proctoring telemetry, automated objective grading, and resilient background job processing.
+**ExamSphere** is an enterprise-grade, cloud-native online examination and automated assessment platform designed to deliver secure, cheat-resistant, and high-concurrency exams. Built with a modular monolith architecture, it supports fine-grained Role-Based Access Control (RBAC), multi-level administration (Super Admin & Department Admin), cryptographic single-use invitation onboarding, timed exam sessions, real-time proctoring telemetry, automated objective grading, and resilient background job processing.
 
 ---
 
-## 🏗️ Architecture & Design Principles
+## 🏗️ Architecture & Core Principles
 
-- **Modular Monolith**: Organized cleanly into feature modules (`auth`, `departments`, `courses`, `admin`, `users`, `faculty`, `student`, `questions`, `exams`, `attempts`, `evaluation`, `notifications`, `monitoring`, `health`) with strict boundaries.
-- **Service & Repository Patterns**: Controllers strictly orchestrate HTTP requests/responses, delegating business logic to Services, while database interactions are encapsulated inside Repositories via Prisma ORM.
+- **Single Source of Truth**: PostgreSQL 16 (via Prisma ORM) is the single authoritative source of truth for all users, departments, courses, exams, attempts, results, and audit trails.
+- **Multi-Level Administration**:
+  - **Super Admin**: Platform-wide governance, department provisioning, Super Admin invitations/promotions with step-up verification, and system telemetry.
+  - **Department Admin**: Scoped strictly to their assigned academic department for course, faculty, student, and invitation management.
+  - **Faculty**: Manages assigned courses, question banks, scheduled exams, live monitoring, and manual subjective grading.
+  - **Student**: Enrolled candidate; accesses scheduled exams, synchronized timer sessions, and published transcripts.
+- **Dual Onboarding Workflows**:
+  - **Direct Administrator Provisioning**: Admins provision accounts without insecure default passwords by issuing secure, single-use activation links via email.
+  - **Cryptographic Email Invitations**: 32-byte single-use random tokens stored only as SHA-256 hashes, with configurable expiration windows (48 hours) and atomic user registration.
+- **Demo Account Isolation**: Demo accounts (`isDemo: true`) are flagged at the database level and public quick-fill credential buttons are strictly disabled in production builds.
 - **Server-Authoritative Timer**: Examination time is computed strictly on the backend (`expiresAt - currentServerTime`). The frontend periodically synchronizes with the server, preventing device clock tampering or local refresh exploits.
 - **Debounced Autosave with Optimistic Concurrency**: Candidate responses are automatically debounced on the client, version-checked on the server to reject stale out-of-order writes, and atomically upserted into PostgreSQL.
-- **Automated Objective & Manual Subjective Grading**:
-  - Automatically evaluates `SINGLE_MCQ`, `MULTIPLE_MCQ` (exact set matching), and `TRUE_FALSE` with configurable negative marking.
-  - Places attempts with `DESCRIPTIVE` answers into `MANUAL_EVALUATION_PENDING` for instructor rubric grading and qualitative feedback.
-- **Standard Competition Ranking (1, 1, 3)**: Mathematically handles tied scores on result publication.
-- **Authenticated Real-Time Socket.IO Gateway**:
-  - Validates JWT tokens on WebSocket handshakes with least-privilege room isolation (`exam:<id>`, `user:<id>`).
-  - Broadcasts live candidate presence (online/offline), attempt starts, submissions, timeouts, and urgent announcements.
-- **Deduplicated Persistent Notifications**: Backed by PostgreSQL and pushed instantly over Socket.IO.
-- **Role-Based Access Control (RBAC)**: Enforces principle of least privilege with distinct roles (`ADMIN`, `FACULTY`, `STUDENT`).
-- **Fail-Fast Environment Validation**: Powered by Zod schemas at application bootstrap.
-- **Centralized Error Handling**: Standardized operational error envelope (`ApiError`) and global middleware.
-- **Brute-Force & Rate-Limiting Protection**: Express rate limiting on sensitive authentication and recovery endpoints.
-- **HttpOnly Cookies & Token Rotation**: Secure refresh token rotation preventing replay attacks.
+- **Auditing & Data Safety**: All sensitive actions (role elevation, invitations, account deactivations, course/faculty reassignments) are recorded in the `audit_logs` table. User deletions use soft-deletion (`deletedAt`) to preserve historical academic integrity.
 
 ---
 
@@ -50,269 +46,230 @@
 | :--- | :--- | :--- |
 | **Node.js** | 20.x / 22.x | High-performance asynchronous runtime |
 | **Express.js** | 4.21.x | REST API web framework |
-| **PostgreSQL** | 16 / 18 | Relational database engine |
+| **PostgreSQL** | 16 | Relational database engine |
 | **Prisma ORM** | 6.x | Type-safe query builder, dual Linux/Windows binary targets |
 | **Redis** | 7 | In-memory cache, session store, and BullMQ transport |
 | **BullMQ** | 5.x | Distributed background job queue for async evaluation |
+| **Nodemailer** | 10.x | Production SMTP email delivery with local development logger |
 | **Socket.IO** | 4.8.x | Real-time bi-directional telemetry and proctoring |
 | **JWT & bcryptjs** | Latest | Secure token authentication (12 salt rounds) |
 | **Zod** | 3.24.x | Runtime schema validation |
-| **Multer & csv-parse** | Latest | Multipart CSV bulk parsing with atomic DB transactions |
-
----
-
-## 🔑 Demo & Seeder Credentials
-
-| Role | Email | Password | Assigned Details |
-| :--- | :--- | :--- | :--- |
-| **ADMIN** | `admin@examsphere.io` | `Admin@12345` | Platform Super Administrator |
-| **FACULTY** | `alan.turing@examsphere.io` | `Faculty@12345` | Dept of Computer Science & Engineering (Lead) |
-| **STUDENT** | `john.doe@examsphere.io` | `Student@12345` | Roll No: `CS2023001`, Batch: `2023-2027`, Sec: `A` |
 
 ---
 
 ## 🛡️ Role-Based Access Control (RBAC) Matrix
 
-| Feature / Domain | ADMIN | FACULTY | STUDENT |
-| :--- | :---: | :---: | :---: |
-| Admin Operations Dashboard & KPIs | ✅ | ❌ | ❌ |
-| Department & Course CRUD Management | ✅ | ❌ | ❌ |
-| Faculty Account Provisioning | ✅ | ❌ | ❌ |
-| Student Account Creation & CSV Bulk Import | ✅ | ❌ | ❌ |
-| Account Deactivation / Activation Control | ✅ | ❌ | ❌ |
-| View Assigned Courses & Enrolled Students | ✅ | ✅ | ❌ |
-| Question Bank & Exam Authoring/Publishing | ✅ | ✅ | ❌ |
-| View Personal Assigned & Live Examinations | ❌ | ❌ | ✅ |
-| Start, Resume & Submit Timed Examination | ❌ | ❌ | ✅ |
+| Feature / Domain | SUPER_ADMIN | DEPARTMENT_ADMIN | FACULTY | STUDENT |
+| :--- | :---: | :---: | :---: | :---: |
+| Platform Analytics & Global Dashboard | ✅ | ❌ | ❌ | ❌ |
+| Super Admin Promotion / Demotion / Suspension | ✅ | ❌ | ❌ | ❌ |
+| Create / Delete Academic Departments | ✅ | ❌ | ❌ | ❌ |
+| Provision Department Administrators | ✅ | ❌ | ❌ | ❌ |
+| Department-Scoped Course CRUD | ✅ | ✅ (Own Dept) | ❌ | ❌ |
+| Provision Faculty & Students (Direct / Invite) | ✅ | ✅ (Own Dept) | ❌ | ❌ |
+| CSV Bulk Import & Export of Students | ✅ | ✅ (Own Dept) | ❌ | ❌ |
+| Account Deactivation / Activation Control | ✅ | ✅ (Own Dept) | ❌ | ❌ |
+| Question Bank & Exam Authoring/Publishing | ✅ | ✅ (Own Dept) | ✅ (Assigned) | ❌ |
+| Live Exam Monitoring & Manual Evaluation | ✅ | ✅ (Own Dept) | ✅ (Assigned) | ❌ |
+| Start, Resume & Submit Timed Examination | ❌ | ❌ | ❌ | ✅ |
+| View Personal Published Exam Results & Ranks | ❌ | ❌ | ❌ | ✅ |
 
 ---
 
-## 🔌 API Endpoints Summary (Phases 3–9)
+## 🔑 Unified Single Login Page & Portal Redirection
 
-### Authentication & Recovery (`/api/v1/auth`)
+ExamSphere features a **single, unified login page** located at `/login` for all platform roles:
+- **No separate login URLs** for admins, faculty, or students.
+- Users authenticate using their registered `email` and `password`.
+- Upon successful authentication, the frontend dynamically inspects the cryptographically verified JWT payload and redirects users to their authorized workspace:
+  - `SUPER_ADMIN` ➔ `/admin` (Global institutional control)
+  - `DEPARTMENT_ADMIN` ➔ `/admin` (Scoped to assigned department)
+  - `ADMIN` (Legacy Admin) ➔ `/admin` (Preserved backward compatibility)
+  - `FACULTY` ➔ `/faculty` (Question banks, course exams, grading)
+  - `STUDENT` ➔ `/student` (Assessments, active attempts, published transcripts)
+
+### Demo Account Handling & Transition Sequence
+- **Development Mode (`NODE_ENV=development`)**: Quick-fill demo presets (`admin@examsphere.io`, `alan.turing@examsphere.io`, `john.doe@examsphere.io`) are available on `/login` to facilitate developer testing and evaluation without having to copy-paste passwords.
+- **Production Mode (`NODE_ENV=production`)**: Public demo quick-fill presets are automatically disabled on production builds (`import.meta.env.PROD` check). To temporarily enable demo buttons in a staging environment, set `VITE_ENABLE_DEMO_ACCOUNTS=true` in `.env`.
+- **Existing Admin Preservation**: Legacy `ADMIN` accounts retain full administrative privileges until real Super Admin accounts are bootstrapped and verified. Existing demo records in PostgreSQL are tagged with `isDemo: true` and are never deleted.
+
+---
+
+## 🚀 Setup & First-Time Super Admin Bootstrap
+
+### 1. Environment Configuration
+
+Copy `.env.example` to `.env` in both the root and `server/` directories:
+```bash
+cp .env.example .env
+```
+
+Key environment variables:
+```ini
+# Server
+PORT=5000
+NODE_ENV=development
+CLIENT_URL=http://localhost:5173
+
+# Database & Cache
+DATABASE_URL="postgresql://user:password@localhost:5432/examsphere"
+REDIS_URL="redis://localhost:6379"
+
+# Security & Tokens
+JWT_SECRET=your_strong_jwt_access_secret_key
+JWT_EXPIRES_IN=1h
+REFRESH_TOKEN_SECRET=your_strong_jwt_refresh_secret_key
+REFRESH_TOKEN_EXPIRES_IN=30d
+BCRYPT_SALT_ROUNDS=12
+
+# Email Transport (SMTP)
+SMTP_HOST=smtp.mailgun.org
+SMTP_PORT=587
+SMTP_USER=postmaster@yourdomain.com
+SMTP_PASS=your_smtp_password
+SMTP_FROM="ExamSphere <noreply@examsphere.io>"
+SMTP_SECURE=false
+
+# First-Time Super Admin Bootstrap
+BOOTSTRAP_TOKEN=your_secure_bootstrap_secret_token
+INITIAL_SUPERADMIN_NAME="Chief Administrator"
+INITIAL_SUPERADMIN_EMAIL="superadmin@institution.edu"
+INITIAL_SUPERADMIN_PASSWORD="YourStrongPassword@2026"
+```
+
+### 2. Database Migrations
+
+Apply database schema migrations non-destructively:
+```bash
+npm run prisma:generate
+npm run prisma:migrate
+```
+
+### 3. Initial Super Admin Bootstrap (One-Time Setup)
+
+When deploying a fresh instance, create the first Super Admin via the secure CLI command:
+```bash
+node server/src/scripts/bootstrapSuperAdmin.js --name "System Administrator" --email "superadmin@institution.edu" --password "StrongPass@2026"
+```
+*Note: Once the first active Super Admin is established, the bootstrap command is automatically and permanently disabled in the backend.*
+
+---
+
+## 👥 Onboarding & User Management Workflows
+
+### 1. Multi-Super Admin Management
+- **List Super Admins:** `GET /api/v1/admin/super-admins`
+- **Promote User to Super Admin:** `POST /api/v1/admin/super-admins/promote` (Requires active Super Admin's password confirmation).
+- **Demote Super Admin:** `POST /api/v1/admin/super-admins/demote` (Protected by the **Last Active Super Admin Guard**; rejects if only 1 active Super Admin remains).
+- **Suspend Super Admin:** `PATCH /api/v1/admin/super-admins/:id/status` (Protected by the Last Active Super Admin Guard).
+
+### 2. Department Admin Provisioning
+Only Super Admins can create Department Admins:
+```bash
+POST /api/v1/users/department-admins
+{
+  "name": "Prof. Alan Turing",
+  "email": "alan.turing@cse.institution.edu",
+  "departmentId": "<department-uuid>",
+  "employeeId": "EMP-CSE-001",
+  "designation": "Head of Department"
+}
+```
+*An activation email with a single-use password setup link is dispatched automatically.*
+
+### 3. Email Invitation System
+Authorized Admins can issue single-use cryptographic email invitations:
+```bash
+POST /api/v1/invitations
+{
+  "name": "Dr. Grace Hopper",
+  "email": "grace.hopper@institution.edu",
+  "role": "FACULTY",
+  "departmentId": "<department-uuid>",
+  "employeeId": "FAC-042",
+  "designation": "Associate Professor",
+  "assignedCourses": ["<course-uuid-1>", "<course-uuid-2>"]
+}
+```
+**Invitation Lifecycle:**
+1. A 32-byte cryptographic token is generated; its SHA-256 hash is stored in the `invitations` table with status `PENDING` (48-hour expiration).
+2. The user receives an activation link: `https://platform.domain/accept-invitation?token=<token>`.
+3. The frontend validates token health via `GET /api/v1/invitations/verify?token=<token>`.
+4. The user sets their password via `POST /api/v1/invitations/accept`.
+5. An atomic database transaction creates the `User` record, binds course enrollments/assignments, marks the token as `ACCEPTED`, and logs the audit event.
+
+---
+
+## 🔌 API Endpoints Summary
+
+### Authentication & Bootstrap (`/api/v1/auth`)
 - `POST /api/v1/auth/login` - Authenticate user, issue JWT access token & HttpOnly refresh token
 - `POST /api/v1/auth/logout` - Invalidate session, revoke refresh token, clear cookies
 - `POST /api/v1/auth/refresh` - Rotate refresh token and issue new access token
+- `POST /api/v1/auth/bootstrap` - One-time initial Super Admin bootstrap (disabled once initialized)
 - `POST /api/v1/auth/forgot-password` - Request crypto reset token for account
 - `POST /api/v1/auth/reset-password` - Validate token and update account password
-- `GET  /api/v1/auth/me` - Retrieve current user profile and role
+- `GET  /api/v1/auth/me` - Retrieve current user profile and verified role
 
-### Admin Operations & Telemetry (`/api/v1/admin`)
-- `GET /api/v1/admin/stats` - Fetch aggregated KPIs, department distributions, and audit logs
+### Super Admin Governance (`/api/v1/admin`)
+- `GET   /api/v1/admin/stats` - Platform KPIs, department statistics, and audit activity
+- `GET   /api/v1/admin/super-admins` - List all Super Admin accounts
+- `POST  /api/v1/admin/super-admins/promote` - Promote existing user to Super Admin (password verified)
+- `POST  /api/v1/admin/super-admins/demote` - Demote Super Admin (last-admin protected)
+- `PATCH /api/v1/admin/super-admins/:id/status` - Suspend or reactivate Super Admin account
+- `POST  /api/v1/admin/super-admins/verify-action` - Step-up password verification endpoint
 
-### Academic Departments (`/api/v1/departments`)
-- `GET    /api/v1/departments` - List departments with pagination & search
-- `POST   /api/v1/departments` - Register new academic department
-- `GET    /api/v1/departments/:id` - Retrieve department details
-- `PUT    /api/v1/departments/:id` - Update department information
-- `DELETE /api/v1/departments/:id` - Delete department
+### Invitation Management (`/api/v1/invitations`)
+- `POST  /api/v1/invitations` - Create and dispatch single-use hashed email invitation
+- `GET   /api/v1/invitations` - List invitations with role, status, and department filtering
+- `PATCH /api/v1/invitations/:id/revoke` - Revoke pending invitation
+- `GET   /api/v1/invitations/verify` - Public: Verify invitation token validity
+- `POST  /api/v1/invitations/accept` - Public: Set password, activate account, and consume token
 
-### Course Curricula (`/api/v1/courses`)
-- `GET    /api/v1/courses` - List courses with department filter, search & pagination
-- `POST   /api/v1/courses` - Register course (code, title, credits, department)
-- `GET    /api/v1/courses/:id` - Retrieve course details and instructors
-- `PUT    /api/v1/courses/:id` - Update course metadata
-- `DELETE /api/v1/courses/:id` - Delete course
-- `POST   /api/v1/courses/:id/faculty` - Assign faculty instructor and coordinator role
-
-### User Management & Cohorts (`/api/v1/users`)
-- `GET   /api/v1/users` - Search users by role, department, active status
-- `POST  /api/v1/users/faculty` - Provision faculty account
-- `POST  /api/v1/users/students` - Register individual student with roll number & batch
-- `PATCH /api/v1/users/:id/status` - Activate or deactivate user account
+### User Cohorts (`/api/v1/users`)
+- `GET   /api/v1/users` - Search users by role, department, active status (department-scoped)
+- `POST  /api/v1/users/department-admins` - Provision Department Admin (Super Admin only)
+- `POST  /api/v1/users/faculty` - Provision faculty account with course assignments
+- `POST  /api/v1/users/students` - Register student with roll number, batch, section & courses
+- `PATCH /api/v1/users/:id/status` - Activate or deactivate user (last Super Admin protected)
 - `POST  /api/v1/users/students/bulk-import` - Atomic bulk CSV student import with duplicate validation
 - `GET   /api/v1/users/students/export` - Export student records as CSV download
 
-### Question Bank Management (`/api/v1/questions`)
-- `POST   /api/v1/questions` - Create question (SINGLE_MCQ, MULTIPLE_MCQ, TRUE_FALSE, DESCRIPTIVE) with marks & rubric
-- `GET    /api/v1/questions` - List questions with course, type, difficulty, search & pagination filters
-- `GET    /api/v1/questions/:id` - Retrieve full question specifications and options (student privacy protected)
-- `PUT    /api/v1/questions/:id` - Update question prompt, marks, difficulty, or options
-- `DELETE /api/v1/questions/:id` - Archive / soft-delete question from active bank
-- `POST   /api/v1/questions/import` - Bulk import questions via CSV in an atomic database transaction
-- `GET    /api/v1/questions/export` - Export course questions as formatted CSV download
-
-### Examination Lifecycle & Scheduling (`/api/v1/exams`)
-- `POST   /api/v1/exams` - Create examination in `DRAFT` status with proctoring parameters
-- `GET    /api/v1/exams` - List examinations with course, status, search & pagination filters
-- `GET    /api/v1/exams/:id` - Retrieve examination details, questions, and assigned roster
-- `PUT    /api/v1/exams/:id` - Update examination configuration (duration, schedule, security toggles)
-- `DELETE /api/v1/exams/:id` - Delete draft examination
-- `PATCH  /api/v1/exams/:id/publish` - Validate and publish exam (transitions to `SCHEDULED` or `LIVE`)
-- `PATCH  /api/v1/exams/:id/cancel` - Cancel active or scheduled examination
-- `POST   /api/v1/exams/:id/questions` - Attach questions from bank and recompute total marks
-- `DELETE /api/v1/exams/:id/questions/:questionId` - Detach question and adjust total marks
-- `POST   /api/v1/exams/:id/assign` - Assign examination to students by batch, section, or roster
-- `GET    /api/v1/exams/:id/assignments` - View candidate assignment roster
-- `POST   /api/v1/exams/:id/start` - Authenticate, validate enrollment, randomize order, and start attempt
-
-### Student Examination Portal (`/api/v1/student`)
-- `GET    /api/v1/student/exams` - List assigned exams categorized by Live, Available, Upcoming, Completed
-- `GET    /api/v1/student/exams/:examId` - View pre-flight examination instructions and integrity brief
-- `GET    /api/v1/student/results` - View student's published examination results and competition ranks
-- `GET    /api/v1/student/exams/:examId/result` - Detailed score breakdown and faculty feedback for published exam
-- `GET    /api/v1/student/exams/:examId/announcements` - View real-time announcement history for assigned exam
-
-### Examination Engine & Session Attempts (`/api/v1/attempts`)
-- `GET    /api/v1/attempts/:attemptId` - Resume existing in-progress attempt, recover questions & saved answers
-- `GET    /api/v1/attempts/:attemptId/time` - Synchronize server-authoritative remaining time
-- `PUT    /api/v1/attempts/:attemptId/answers/:questionId` - Debounced autosave response with optimistic concurrency
-- `POST   /api/v1/attempts/:attemptId/submit` - Idempotently submit attempt (MANUAL, AUTO_TIMEOUT, ADMIN_TERMINATED)
-
-### Evaluation & Result Management (`/api/v1/faculty`)
-- `GET    /api/v1/faculty/exams/:examId/submissions` - List submissions with filtering, evaluation statuses, and stats
-- `GET    /api/v1/faculty/attempts/:attemptId` - Retrieve student answers, correct options, and grading rubric
-- `PUT    /api/v1/faculty/attempts/:attemptId/evaluate` - Manual grading of descriptive questions with mark validation
-- `POST   /api/v1/faculty/attempts/:attemptId/finalize` - Finalize attempt evaluation and transition status to EVALUATED
-- `POST   /api/v1/faculty/exams/:examId/publish-results` - Calculate competition rankings (1, 1, 3) and publish results
-- `GET    /api/v1/faculty/exams/:examId/results/export` - Export exam results as CSV
-
-### Real-Time Monitoring & Telemetry (`/api/v1/faculty`)
-- `GET    /api/v1/faculty/exams/:examId/monitoring` - Live candidate telemetries, presence, and attempt progress
-- `POST   /api/v1/faculty/exams/:examId/announcements` - Broadcast urgent real-time announcement to exam room
-
-### Persistent Notifications (`/api/v1/notifications`)
-- `GET    /api/v1/notifications` - Paginated user notification feed with unread filter
-- `GET    /api/v1/notifications/unread-count` - Fast unread notification counter
-- `PATCH  /api/v1/notifications/:id/read` - Mark individual notification as read
-- `PATCH  /api/v1/notifications/read-all` - Mark all notifications as read
-
-### Advanced Analytics & Reporting (`/api/v1/analytics`)
-- `GET    /api/v1/analytics/admin/overview` - Institution-wide analytics, exam trends, completion stats, pass/fail and score distributions (Redis-cached)
-- `GET    /api/v1/analytics/faculty/overview` - Faculty-specific course analytics and authorized exam statistics
-- `GET    /api/v1/analytics/faculty/exams/:examId` - Deep-dive exam analytics: question accuracy, skipped questions, difficult questions
-- `GET    /api/v1/analytics/student/overview` - Student's private performance metrics across published exam results
-- `GET    /api/v1/analytics/student/performance-trend` - Chronological score progression over time for personal analytics
-- `GET    /api/v1/analytics/reports/department-summary` - Export department summary report as downloadable CSV
-- `GET    /api/v1/analytics/reports/question-analysis/:examId` - Export question accuracy and difficulty index report as CSV
-- `GET    /api/v1/analytics/reports/faculty-exam-summary/:examId` - Export comprehensive exam performance report as CSV
-- `GET    /api/v1/analytics/reports/student-performance/:studentId?` - Export student academic transcript as CSV
-
-### Coding Assessment & Code Execution (`/api/v1/coding`)
-- `POST   /api/v1/coding/questions` - Create CODING question with problem statement, starter code, sample & hidden test cases
-- `PUT    /api/v1/coding/questions/:questionId` - Update coding question configuration and test case definitions
-- `GET    /api/v1/coding/questions/:questionId` - Retrieve coding question details (strictly excludes hidden test cases for students)
-- `POST   /api/v1/coding/run` - Execute source code against sample test cases or custom STDIN in isolated runner
-- `POST   /api/v1/coding/submissions` - Submit solution for grading against all test cases with evaluation policy enforcement
-- `GET    /api/v1/coding/questions/:questionId/submissions` - Retrieve candidate code submission history
-
-### Proctoring Assistance & Exam Integrity (`/api/v1/proctoring`)
-- `POST   /api/v1/proctoring/events` - Rate-limited recording of browser integrity events (`TAB_BLUR`, `FULLSCREEN_EXIT`, etc.)
-- `GET    /api/v1/proctoring/attempts/:attemptId` - Faculty candidate activity timeline with neutral review notices
+### Departments & Curricula (`/api/v1/departments`, `/api/v1/courses`)
+- `GET    /api/v1/departments` - List departments
+- `POST   /api/v1/departments` - Register new department (Super Admin only)
+- `PUT    /api/v1/departments/:id` - Update department (Super Admin or assigned Dept Admin)
+- `DELETE /api/v1/departments/:id` - Delete/deactivate department (Super Admin only)
+- `GET    /api/v1/courses` - List courses (scoped by department for Dept Admins)
+- `POST   /api/v1/courses` - Register course within authorized department
+- `PUT    /api/v1/courses/:id` - Update course metadata
+- `DELETE /api/v1/courses/:id` - Delete or soft-deactivate course
+- `POST   /api/v1/courses/:id/faculty` - Assign faculty instructor and coordinator status
+- `DELETE /api/v1/courses/:id/faculty/:facultyId` - Unassign instructor from course
 
 ---
 
-## 🚀 Running the Project
+## 🔒 Security & Data Safety Features
 
-### 1. Start Database & Cache
-In WSL Ubuntu or Docker:
-```bash
-sudo service postgresql start
-sudo service redis-server start
-```
+1. **Step-Up Verification**: Sensitive role changes require the performing Super Admin to re-enter their current password, guarding against session hijacking.
+2. **Last Active Super Admin Guard**: The system calculates the count of active, un-deleted Super Admins prior to any demotion or suspension; requests reducing the active count below 1 are strictly rejected with HTTP 403.
+3. **Department Isolation**: Department Admins are constrained to their assigned `departmentId` across user creation, course management, student bulk import, and invitation issuance.
+4. **Hashed Token Storage**: Invitation and password reset tokens are generated using `crypto.randomBytes(32)` and stored solely as SHA-256 hashes. Leaked database snapshots cannot be used to hijack accounts.
+5. **No Plaintext Passwords in Emails**: Onboarding links require users to establish their own passwords through an encrypted HTTPS setup portal.
+6. **Soft Deletion for Academic Records**: Deleting a student or faculty account sets `deletedAt` and `isActive: false`, ensuring exam submissions, attempt logs, and published transcripts remain preserved for institutional compliance.
+7. **Database Backup Drill**: Automated database backup script available in `server/src/scripts/backupDatabase.js`.
 
-### 2. Run Database Migrations & Seeds
-```bash
-npm run prisma:generate
-npm run seed
-```
+---
 
-### 3. Verify End-to-End API Test Suites
-Run the automated test suites covering all platform modules:
+## 🧪 Testing & Verification
+
+Run automated test suites covering authentication, onboarding, RBAC, and examination modules:
 ```bash
-# Full Platform Test Suite (Batches 3, 4, 5):
+# Run all server integration and security test suites:
 npm --prefix server test
-# Result: 42/42 Passed (100% Success across 3 test suites)
-# - Batch 3: Examination Engine & Session Interface (17 tests)
-# - Batch 4: Evaluation, Result Management & Monitoring (14 tests)
-# - Batch 5: Analytics, Coding Assessment & Proctoring (11 tests)
 ```
-
-### 4. Start Development Servers
-**Backend API (Port 5000):**
-```bash
-npm run dev:server
-```
-
-**Frontend Client (Port 5173):**
-```bash
-npm run dev:client
-```
-
-Visit **http://localhost:5173** to log in using the quick demo credential switcher.
-
----
-
-## 📌 Development Roadmap
-
-- [x] **Phase 1**: Project Initialization & Environment Setup
-- [x] **Phase 2**: Database Architecture & Relational Schema (19 Prisma Models)
-- [x] **Phase 3**: Complete Authentication & Role-Based Access Control (RBAC)
-- [x] **Phase 4**: Admin Operations Dashboard, Telemetry & Department/Course Management
-- [x] **Phase 5**: Faculty & Student Management, Bulk CSV Import & Dedicated Portals
-- [x] **Phase 6**: Question Bank Management (Single MCQ, Multi MCQ, True/False, Descriptive, CSV Import/Export)
-- [x] **Phase 7**: Exam Creation and Scheduling (6-Step Wizard, Question Reordering, Marks Calculation, Anti-Cheat, Publishing)
-- [x] **Phase 8**: Student Examination Interface (Dashboard, Pre-flight Briefing, Distraction-Free UI, Color-Coded Palette)
-- [x] **Phase 9**: Examination Engine (Authoritative Timer, Debounced Autosave, Optimistic Concurrency, Resumption, Idempotent Submission & Worker)
-- [x] **Phase 10**: Evaluation and Result Management (Auto-Evaluation, Exact MCQ Match, Negative Marking, Faculty Manual Grading, Competition Ranking, CSV Export)
-- [x] **Phase 11**: Real-Time Monitoring & Notifications (Socket.IO Authenticated Gateway, Live Presence, Urgent Announcements, Deduplicated Persistent Notifications)
-- [x] **Phase 12**: Analytics and Reporting (Admin & Faculty Recharts Dashboards, Question Diagnostics, Redis Aggregation Caching & CSV Export)
-- [x] **Phase 13**: Coding Assessment & Proctoring Assistance (Monaco Editor, Secure Isolated Execution Abstraction, Hidden Test Privacy, Neutral Integrity Telemetry)
-- [x] **Phase 14**: Security and Scalability (Helmet, Rate Limiting, Request ID Tracing, Error Masking, Route Lazy-Loading, Health Probes)
-- [x] **Phase 15**: Docker, AWS Deployment and College Pilot (Multi-Stage Dockerfiles, Nginx Reverse Proxy, 100-Student Load Testing, CI/CD & Pilot Readiness)
-
----
-
-## 🔒 Phase 14: Security, Resilience & Scalability
-
-1. **Request Tracing & Observability**: Every request is assigned a unique `X-Request-Id` (UUID) propagating through headers, error responses, and audit logs.
-2. **Hardened Multi-Tier Rate Limiting**:
-   - `authLimiter`: 20 requests per 15 minutes per IP.
-   - `passwordResetLimiter`: 5 requests per hour.
-   - `submissionLimiter`: 60 autosave/submit actions per minute.
-   - `codingExecutionLimiter`: 20 runs per minute protecting execution sandboxes.
-   - `apiLimiter`: 600 requests per 15 minutes per IP.
-3. **Production Error Masking**: Sanitizes internal stack traces and Prisma errors in production to avoid leaking database structures.
-4. **Health & Readiness Probes**:
-   - `GET /health`: Sub-millisecond container liveness check for orchestrators.
-   - `GET /health/ready`: Deep dependency readiness probe checking PostgreSQL and Redis.
-5. **Frontend Code-Splitting**: Full `React.lazy()` and `Suspense` route splitting. Initial bundle reduced by ~90% (from 1,225 kB down to 135 kB).
-6. **Graceful Worker Shutdown**: Handles SIGTERM/SIGINT by draining BullMQ evaluation workers and stopping expired attempts intervals before disconnecting Prisma.
-
----
-
-## 🐳 Phase 15: Production Docker, Nginx & AWS Deployment
-
-### 1. Production Docker Compose
-Launch the complete containerized stack (Frontend Nginx, Backend API, Redis 7, and PostgreSQL 16) with isolated internal networks:
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-### 2. High-Concurrency Load Test Benchmark
-Execute repeatable load tests simulating 100 concurrent students:
-```bash
-node server/src/scripts/loadTest.js
-```
-**Measured Benchmark Performance (1,000 requests @ 100 virtual students):**
-- **Throughput:** 385.06 requests/second
-- **Error Rate:** 0.00% (0 errors)
-- **Median Latency (p50):** 201.23 ms
-- **95th Percentile (p95):** 436.20 ms
-
-### 3. Database Backup & Restore Drill
-```bash
-# Automated backup procedure:
-node server/src/scripts/backupDatabase.js
-```
-
-### 4. Continuous Integration & Delivery (CI/CD)
-The `.github/workflows/ci-cd.yml` pipeline automatically validates:
-- Prisma schema integrity (`prisma validate`)
-- Backend unit and integration test suites
-- Frontend production bundle build (`vite build`)
-- Multi-stage Docker image builds
-
-
-
-
+- Batch 3: Examination Engine & Session Interface (18 tests)
+- Batch 4: Evaluation, Result Management & Monitoring (14 tests)
+- Batch 5: Analytics, Coding Assessment & Proctoring (11 tests)
+- Batch 6: Multi-Admin, Invitations & Scoped RBAC Tests (13 tests)
+- **Total:** 55 passing automated integration tests

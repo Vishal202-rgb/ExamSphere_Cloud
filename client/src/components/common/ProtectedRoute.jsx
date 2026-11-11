@@ -13,12 +13,16 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   if (allowedRoles) {
     const isAllowed =
       allowedRoles.includes(role) ||
-      ((allowedRoles.includes('ADMIN') || allowedRoles.includes('SUPER_ADMIN')) &&
-        (role === 'ADMIN' || role === 'SUPER_ADMIN'));
+      (allowedRoles.includes('ADMIN') &&
+        (role === 'DEPARTMENT_ADMIN' || role === 'SUPER_ADMIN' || role === 'ADMIN')) ||
+      (allowedRoles.includes('DEPARTMENT_ADMIN') &&
+        (role === 'SUPER_ADMIN' || role === 'ADMIN'));
 
     if (!isAllowed) {
       // Redirect to their authorized portal based strictly on verified role
-      if (role === 'ADMIN' || role === 'SUPER_ADMIN') return <Navigate to="/admin" replace />;
+      if (role === 'SUPER_ADMIN' || role === 'DEPARTMENT_ADMIN' || role === 'ADMIN') {
+        return <Navigate to="/admin" replace />;
+      }
       if (role === 'FACULTY') return <Navigate to="/faculty" replace />;
       if (role === 'STUDENT') return <Navigate to="/student" replace />;
       return <Navigate to="/login" replace />;

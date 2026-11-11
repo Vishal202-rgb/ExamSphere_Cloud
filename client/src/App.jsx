@@ -23,6 +23,7 @@ import StudentLayout from './layouts/StudentLayout.jsx';
 
 // Auth
 const LoginPage = lazy(() => import('./pages/auth/LoginPage.jsx'));
+const AcceptInvitationPage = lazy(() => import('./pages/auth/AcceptInvitationPage.jsx'));
 
 // Admin Pages
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage.jsx'));
@@ -76,7 +77,7 @@ function RootRedirect() {
     return <Navigate to="/login" replace />;
   }
 
-  if (role === 'ADMIN' || role === 'SUPER_ADMIN') return <Navigate to="/admin" replace />;
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'DEPARTMENT_ADMIN') return <Navigate to="/admin" replace />;
   if (role === 'FACULTY') return <Navigate to="/faculty" replace />;
   if (role === 'STUDENT') return <Navigate to="/student" replace />;
 
@@ -120,12 +121,13 @@ export default function App() {
 
         {/* Public Login Route */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
 
         {/* Admin Portal Protected Routes */}
         <Route
           path="/admin"
           element={
-            <ProtectedRoute allowedRoles={['ADMIN', 'SUPER_ADMIN']}>
+            <ProtectedRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'DEPARTMENT_ADMIN']}>
               <AdminLayout />
             </ProtectedRoute>
           }
@@ -133,7 +135,7 @@ export default function App() {
           <Route
             index
             element={
-              <ProtectedRoute allowedRoles={['ADMIN', 'SUPER_ADMIN']}>
+              <ProtectedRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'DEPARTMENT_ADMIN']}>
                 <AdminDashboardPage />
               </ProtectedRoute>
             }

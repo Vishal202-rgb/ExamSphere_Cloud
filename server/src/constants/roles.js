@@ -4,7 +4,9 @@
 // ==============================================================================
 
 export const ROLES = Object.freeze({
-  ADMIN: 'ADMIN',
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  DEPARTMENT_ADMIN: 'DEPARTMENT_ADMIN',
+  ADMIN: 'ADMIN', // Backward-compatibility alias
   FACULTY: 'FACULTY',
   STUDENT: 'STUDENT',
 });
