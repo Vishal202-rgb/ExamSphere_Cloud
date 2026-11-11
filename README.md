@@ -95,6 +95,121 @@ ExamSphere features a **single, unified login page** located at `/login` for all
 
 ---
 
+## ☁️ Production Deployment (Vercel + Render)
+
+ExamSphere is architected for seamless separation of concerns:
+- **Frontend SPA**: Hosted on **Vercel** with global Edge CDN caching and SPA fallback.
+- **Backend API & WebSockets**: Hosted on **Render** (Node.js + Express + Socket.IO + Background Workers).
+- **Database**: Cloud-hosted **Neon PostgreSQL 16**.
+- **Cache & Queues**: Cloud-hosted **Upstash Redis**.
+
+---
+
+### 1. Frontend Deployment on Vercel
+
+#### Vercel Project Configuration:
+| Setting | Exact Value | Notes |
+| :--- | :--- | :--- |
+| **Framework Preset** | `Vite` | Auto-detected |
+| **Root Directory** | `client` | **Crucial:** Must point to the `client` directory |
+| **Build Command** | `vite build` or `npm run build` | Handled by Vite |
+| **Output Directory** | `dist` | Generated inside `client/dist` |
+| **Install Command** | `npm install` | Auto-managed by Vercel |
+
+#### SPA Routing Fallback (`client/vercel.json`):
+Vercel requires rewrites to `index.html` to prevent 404 errors on direct navigation or page refreshes (`/login`, `/admin/dashboard`, `/faculty/dashboard`, `/student/dashboard`, `/accept-invitation`). This is preconfigured in `client/vercel.json`:
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
+```
+
+#### Required Vercel Frontend Environment Variables:
+Configure these in **Vercel Dashboard ➔ Project Settings ➔ Environment Variables**:
+
+| Variable Name | Example / Target Value | Description |
+| :--- | :--- | :--- |
+| `VITE_API_BASE_URL` | `https://<your-render-backend-url>/api/v1` | **Required**: Production Render API endpoint |
+| `VITE_SOCKET_URL` | `https://<your-render-backend-url>` | **Optional**: WebSocket server URL (auto-derived from API URL if omitted) |
+| `VITE_ENABLE_DEMO_ACCOUNTS` | `false` | **Required**: Strictly disables demo login autofill in production |
+| `VITE_APP_NAME` | `ExamSphere` | Application title |
+
+> [!CAUTION]
+> **Frontend Security Rule**: NEVER add `DATABASE_URL`, `JWT_SECRET`, `SMTP_PASS`, or `REDIS_URL` to Vercel environment variables. Vite embeds `VITE_*` variables into the public JavaScript bundle.
+
+---
+
+### 2. Backend Deployment on Render
+
+#### Render Web Service Configuration:
+| Setting | Exact Value |
+| :--- | :--- |
+| **Environment** | `Node` |
+| **Root Directory** | `server` |
+| **Build Command** | `npm install && npx prisma generate` |
+| **Start Command** | `node src/server.js` |
+| **Auto-Deploy** | `Yes` (Triggered on git push) |
+
+#### Required Render Backend Environment Variables:
+Configure these in **Render Dashboard ➔ Environment ➔ Environment Variables**:
+
+| Variable Name | Recommended Value | Purpose |
+| :--- | :--- | :--- |
+| `NODE_ENV` | `production` | Enables production optimizations and disables stack leaks |
+| `CLIENT_URL` | `https://<your-vercel-domain>.vercel.app` | Vercel frontend origin allowed by CORS (no trailing slash) |
+| `DATABASE_URL` | `postgresql://<user>:<pass>@<neon-host>/<db>?sslmode=require` | Neon PostgreSQL pooled connection string |
+| `REDIS_URL` | `rediss://default:<pass>@<upstash-endpoint>:6379` | Upstash Redis connection string with TLS (`rediss://`) |
+| `JWT_SECRET` | `openssl rand -hex 32` | Secret key for signing 1h access tokens |
+| `REFRESH_TOKEN_SECRET` | `openssl rand -hex 32` | Secret key for signing 7d refresh tokens |
+| `BCRYPT_SALT_ROUNDS` | `12` | Password hashing complexity |
+| `SMTP_HOST` | `smtp.mailgun.org` / `smtp.sendgrid.net` | Production SMTP relay server |
+| `SMTP_PORT` | `587` | Standard TLS SMTP port |
+| `SMTP_USER` | `<smtp-username>` | SMTP authenticated username |
+| `SMTP_PASS` | `<smtp-password>` | SMTP authenticated password/API key |
+| `SMTP_FROM` | `ExamSphere <noreply@examsphere.io>` | Verified sender email address |
+| `BOOTSTRAP_TOKEN` | `openssl rand -hex 24` | Secret token to authenticate one-time Super Admin bootstrap |
+
+---
+
+### 3. Step-by-Step Render ➔ Vercel Interconnection Workflow
+
+1. **Deploy Backend on Render First**:
+   - Create a new **Web Service** on Render pointing to your GitHub repository `Vishal202-rgb/ExamSphere_Cloud`.
+   - Set **Root Directory** to `server`.
+   - Set **Build Command** to `npm install && npx prisma generate` and **Start Command** to `node src/server.js`.
+   - Input all Backend Environment Variables (Neon `DATABASE_URL`, Upstash `REDIS_URL`, `JWT_SECRET`, etc.).
+   - Deploy and note your generated Render URL (e.g. `https://examsphere-backend.onrender.com`).
+2. **Verify Backend Health**:
+   - Visit `https://<your-render-backend-url>/api/v1/health` in your browser.
+   - Confirm response: `{"status":"ok","timestamp":"...","database":"connected","redis":"connected"}`.
+3. **Deploy Frontend on Vercel**:
+   - Import `Vishal202-rgb/ExamSphere_Cloud` into Vercel.
+   - Under **Project Settings**, change **Root Directory** to `client`.
+   - Add environment variable `VITE_API_BASE_URL=https://<your-render-backend-url>/api/v1`.
+   - Add environment variable `VITE_ENABLE_DEMO_ACCOUNTS=false`.
+   - Deploy. Vercel will build the frontend using `client/vercel.json` and output to `client/dist`.
+4. **Update Render CORS Allowed Origin**:
+   - In Render Dashboard, update `CLIENT_URL` to your live Vercel URL (e.g. `https://examsphere-cloud.vercel.app`).
+   - The backend will automatically whitelist this domain for both Axios HTTP credentials and Socket.IO real-time events.
+5. **Run One-Time Super Admin Bootstrap**:
+   - In Render SSH Console or local terminal connected to production:
+     ```bash
+     node server/src/scripts/bootstrapSuperAdmin.js --name "Chief Administrator" --email "superadmin@institution.edu" --password "StrongInitialPassword@2026"
+     ```
+   - The platform is now fully live with real-user onboarding, email invitations, and multi-admin governance!
+
+---
+
 ## 🚀 Setup & First-Time Super Admin Bootstrap
 
 ### 1. Environment Configuration

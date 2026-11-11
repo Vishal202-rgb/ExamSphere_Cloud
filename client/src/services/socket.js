@@ -7,9 +7,28 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 
+// Resolve the Socket.IO server URL:
+// 1. Explicit VITE_SOCKET_URL
+// 2. Or derived from VITE_API_BASE_URL / VITE_API_URL (by stripping /api/v1 or /api)
+// 3. Or localhost in development mode
+export const getSocketServerUrl = () => {
+  const envSocketUrl = import.meta.env.VITE_SOCKET_URL;
+  if (envSocketUrl) {
+    return envSocketUrl.endsWith('/') ? envSocketUrl.slice(0, -1) : envSocketUrl;
+  }
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
+  if (envApiUrl) {
+    return envApiUrl.replace(/\/api(\/v\d+)?\/?$/, '');
+  }
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5000';
+  }
+  return window.location.origin;
+};
+
 export const getSocket = () => {
   if (!socket) {
-    const serverUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+    const serverUrl = getSocketServerUrl();
     const token = localStorage.getItem('examsphere_token');
 
     socket = io(serverUrl, {

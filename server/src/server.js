@@ -16,9 +16,22 @@ const server = http.createServer(app);
 import { setupSocketIO } from './socket/index.js';
 
 // Initialize Socket.IO with CORS settings
+const cleanClientUrl = env.CLIENT_URL ? env.CLIENT_URL.replace(/\/+$/, '') : 'http://localhost:5173';
 export const io = new SocketIOServer(server, {
   cors: {
-    origin: [env.CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const normalized = origin.replace(/\/+$/, '');
+      if (
+        normalized === cleanClientUrl ||
+        normalized === 'http://localhost:5173' ||
+        normalized === 'http://127.0.0.1:5173' ||
+        normalized.endsWith('.vercel.app')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
   },
 });

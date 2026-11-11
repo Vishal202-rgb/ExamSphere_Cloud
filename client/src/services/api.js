@@ -6,8 +6,25 @@
 import axios from 'axios';
 import { decodeToken, isTokenExpired } from '../lib/utils.js';
 
+// Resolve the backend API base URL from environment variables
+// Supports VITE_API_BASE_URL as primary, VITE_API_URL as alias
+export const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    return envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
+  }
+  // Local development fallback
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5000/api/v1';
+  }
+  // Production fallback to avoid hardcoded localhost in deployed bundle
+  return '/api/v1';
+};
+
+export const API_BASE_URL = getApiBaseUrl();
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -110,7 +127,7 @@ api.interceptors.request.use(
       isRefreshing = true;
       try {
         const refreshResponse = await axios.post(
-          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1'}/auth/refresh`,
+          `${API_BASE_URL}/auth/refresh`,
           { refreshToken: storedRefreshToken },
           { withCredentials: true }
         );
@@ -219,7 +236,7 @@ api.interceptors.response.use(
 
       try {
         const refreshResponse = await axios.post(
-          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1'}/auth/refresh`,
+          `${API_BASE_URL}/auth/refresh`,
           { refreshToken: storedRefreshToken },
           { withCredentials: true }
         );

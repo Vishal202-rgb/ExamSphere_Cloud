@@ -47,8 +47,10 @@ app.use(
 );
 
 // 3. CORS Configuration
+const cleanClientUrl = env.CLIENT_URL ? env.CLIENT_URL.replace(/\/+$/, '') : 'http://localhost:5173';
 const allowedOrigins = [
-  env.CLIENT_URL,
+  cleanClientUrl,
+  `${cleanClientUrl}/`,
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
@@ -59,7 +61,13 @@ app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server)
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      if (!origin) return callback(null, true);
+      const normalized = origin.replace(/\/+$/, '');
+      if (
+        allowedOrigins.includes(origin) ||
+        allowedOrigins.includes(normalized) ||
+        normalized.endsWith('.vercel.app')
+      ) {
         return callback(null, true);
       }
       return callback(null, true); // Permissive in dev/pilot
